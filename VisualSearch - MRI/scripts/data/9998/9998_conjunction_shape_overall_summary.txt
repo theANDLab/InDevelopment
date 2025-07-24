@@ -1,0 +1,7 @@
+SearchType	Feature	MotionType	SetSize	Hits	Misses	CorrectRejects	FalseAlarms	Present	Absent	HitRate	MissRate	CorrectRejectRate	FalseAlarmRate	HitsRT	FalseAlarmRT
+conjunction	shape	mixed	1	22.5	2	24	0.5	25	25	0.9	0.08	0.96	0.02	551.409090909091	-1000
+conjunction	shape	mixed	3	23.5	1	24	0.5	25	25	0.94	0.04	0.96	0.02	633.95652173913	-1000
+conjunction	shape	mixed	5	21.5	3	22	2.5	25	25	0.86	0.12	0.88	0.1	616.571428571429	508
+conjunction	shape	mixed	7	24.5	0	24	0.5	25	25	0.98	0	0.96	0.02	641.416666666667	-1000
+conjunction	shape	mixed	9	21.5	3	24	0.5	25	25	0.86	0.12	0.96	0.02	746	-1000
+conjunction	shape	mixed	11	21.5	3	24	0.5	25	25	0.86	0.12	0.96	0.02	767.619047619048	-1000
