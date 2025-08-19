@@ -31,25 +31,24 @@ color_condition = {'ATTENTION_CONDS': ['FIX', 'COV'],
                    'BLOCK_DESIGN': [('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM'),('RVF','SEQ'),('LVF','SIM'),
                                     ('RVF','SIM'),('LVF','SEQ'),('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM')]}
 
-# Block/trial timing parameters
-BLANK_BLOCK_DURATION = 16 # seconds
-PERIPH_STIM_DURATION = 1 # seconds
-NUM_PSTIMS = 4 # number of peripheral stimuli
-TRIAL_DURATION = PERIPH_STIM_DURATION*NUM_PSTIMS # seconds, not including ISIs
-ISI = 0.033 # seconds; blank fixation between peripheral stimuli for SEQ condition
-
-# Parameters for 2x2 peripheral stimulus grid
+# Size
 PERIPHERAL_STIM_SIZE = 1.75 #DVA; size of each peripheral stimulus (circle)
+POKEMON_SIZE = [1.5, 1.5] # DVA, size of the pokemon during RSVP
+NUM_PSTIMS = 4 # number of peripheral stimuli
 GRID_SIZE = 4 #DVA; height and width of the peripheral stimulus grid
 ECCENTRICITY = 7 #DVA from the center of the grid to the center of each peripheral stimulus
 PERIPHERAL_STIM_COLORS = ['red', 'blue', 'green', 'yellow', 'magenta', 'cyan'] 
+
+# Timing
+BLANK_BLOCK_DURATION = 16 # seconds
+PERIPH_STIM_DURATION = 1 # seconds
+ISI = 0.033 # seconds; blank fixation between peripheral stimuli for SEQ condition
+TRIAL_DURATION = PERIPH_STIM_DURATION*NUM_PSTIMS # seconds, not including ISIs
 PSTIM_TARGET_FREQ = [1,3] # pstim color targets will occur every 1-3 trials
-
-# Parameters for pokemon RSVP
-RSVP_RATE = 0.25 # seconds; new pokemon every 250ms in the RSVP
 POKEMON_TARGET_FREQ = [3.75,7.5] # pokemon targets will occur every 3.75-7.5s in the RSVP
-POKEMON_SIZE = [1.5, 1.5] # DVA, size of the pokemon during RSVP
 
+# Response Parameters
+RSVP_RATE = 0.25 # seconds; new pokemon every 250ms in the RSVP
 RESPONSE_KEY = 'space'
 
 ###### EXPERIMENT SETUP #######################################################################################################
@@ -212,7 +211,7 @@ def generate_all_visuals(feature_condition, target_pokemon, target_color):
     attention_conds = feature_condition['ATTENTION_CONDS']
     
     num_attention_conds = len(attention_conds)
-    num_unique_runs = num_runs//num_attention_conds
+    num_unique_runs = num_runs//num_attention_conds # visuals are repeated across the attention conds 
     trials_per_run = num_blocks*num_trials
     total_run_duration = trials_per_run*TRIAL_DURATION # does not include ISIs or blank blocks
 
@@ -221,24 +220,35 @@ def generate_all_visuals(feature_condition, target_pokemon, target_color):
     num_blank_rsvps = int(num_blanks*num_runs//2) # total number of unique RSVP sequences for the blank blocks (each repeated for each attention_cond)
     num_pokemon_needed = int(BLANK_BLOCK_DURATION//RSVP_RATE) # how many pokemon needed for one blank block RSVP
     
-    sequences = []
+    blank_sequences = []
     for block in range(num_blank_rsvps):
-        seq = []
-        for i in range(num_pokemon_needed):
-            distractor = random.choice([p for p in pokemon_names if p != target_pokemon])
-            # ensure that there are no back to back repetitions of pokemon in the sequence
-            if i !=0 and distractor == seq[-1]:
-                distractor = random.choice([p for p in pokemon_names if p != target_pokemon and p != seq[-1]])
-            seq.append(distractor)
-        sequences.append(seq)
+        target_indices = [] # list of time t when target pokemon appears in the blank block, with t=0 being the start of the block
+        t_pokemon = random.uniform(*POKEMON_TARGET_FREQ) # randomly pick the first target pokemon onset
+        while t_pokemon < BLANK_BLOCK_DURATION:
+            target_idx = int(t_pokemon//RSVP_RATE)
+            if target_idx < num_pokemon_needed:
+                target_indices.append(target_idx)
+            t_pokemon += random.uniform(*POKEMON_TARGET_FREQ) # add a random time interval between last target and next target
+            
+        rsvp_sequence = []
+        for idx in range(num_pokemon_needed):
+            if idx in target_indices:
+                rsvp_sequence.append(target_pokemon)
+            else:
+                distractor = random.choice([p for p in pokemon_names if p != target_pokemon])
+                # ensure that there are no back to back repetitions of pokemon in the sequence
+                if idx !=0 and distractor == rsvp_sequence[-1]:
+                    distractor = random.choice([p for p in pokemon_names if p != target_pokemon and p != rsvp_sequence[-1]])
+                rsvp_sequence.append(distractor)
+        blank_sequences.append(rsvp_sequence) # blank_sequences is a list of 6 inner lists of pokemon sequences
 
-    sequences *= num_attention_conds # repeat the unique sequences for each attention condition
+    blank_sequences *= num_attention_conds # repeat the unique sequences for each attention condition
 
     # in a dictionary, assign one rsvp to start blank block and one end blank block to each run in the feature condition
     blanks_rsvps = {}
     seq_idx = 0
     for run in range(1, num_runs+1):
-        blanks_rsvps[run] = [sequences[seq_idx], sequences[seq_idx+1]]
+        blanks_rsvps[run] = [blank_sequences[seq_idx], blank_sequences[seq_idx+1]]
         seq_idx += num_attention_conds
         
     # ---------------- Peripheral Stimulus Grid Setup ----------------
