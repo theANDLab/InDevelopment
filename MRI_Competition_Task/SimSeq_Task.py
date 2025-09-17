@@ -375,12 +375,10 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
         pstim = visual.Circle(win, name = color, pos = pos, radius = PERIPHERAL_STIM_SIZE/2 , units = 'deg', anchor = 'center', fillColor=color, lineColor=color)
         pstim_dict = {color: pstim}
         pstim_to_draw.append(pstim) # add all the pstims to be drawn to a list
-    
 
     pstim_onsets = [0, 1, 2, 3] # seconds; each peripheral stimuli will be shown one at a time in SEQ condition
-    # SIM only: select random start time for peripheral stimuli
     if is_sim_trial:
-        pstim_start_time = random.choice(pstim_onsets)
+        pstim_start_time = random.choice(pstim_onsets) # select random start time for grid in sim trials
 
     # Reset visual components before trial loop
     components = [pstim_dict, pokemon_dict, kb]
@@ -419,51 +417,34 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
         if rsvp_index < len(rsvp_sequence): # make sure we don't go past the last pokemon in the rsvp
             current_pokemon = pokemon_dict[rsvp_sequence[rsvp_index]]
             is_final_pokemon = rsvp_index == len(rsvp_sequence) - 1 # check if this is the last pokemon in the RSVP
+            
+            # Draw pokemon RSVP stream
+            if current_pokemon.status == NOT_STARTED and tThisFlip >= 0: # Start RSVP stream at the start of the trial
+                draw_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
+                current_pokemon_onset = current_pokemon.tStartRefresh # Record time when the pokemon was first presented
+                if rsvp_sequence[rsvp_index] == target_pokemon and target_pokemon_onset == None:
+                    thisExp.addData(f'{target_pokemon}.started', comp.tStart) # Add time when target pokemon appears (in reference to start of trial) to data file
+                    target_pokemon_onset = current_pokemon_onset # If pokemon is target pokemon, save first onset time
 
-            # Visual flow for SIM condition
-            if is_sim_trial:
-                # Draw pokemon RSVP stream
-                if current_pokemon.status == NOT_STARTED and tThisFlip >= 0: # Start RSVP stream at the start of the trial
-                    draw_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
-                    current_pokemon_onset = current_pokemon.tStartRefresh # Record time when the pokemon was first presented (from global clock!)
-                    if rsvp_sequence[rsvp_index] == target_pokemon and target_pokemon_onset == None:
-                        thisExp.addData(f'{target_pokemon}.started', comp.tStart) # Add time when target pokemon appears (in reference to start of trial) to data file
-                        target_pokemon_onset = current_pokemon_onset # If pokemon is target pokemon, save first onset time
-
-                if current_pokemon.status == STARTED and tThisFlipGlobal > current_pokemon_onset + RSVP_RATE: # erase the current pokemon after rsvp rate elapses
-                    erase_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
-                    if not is_final_pokemon:
-                        rsvp_index += 1 # move to the next pokemon in the sequence unless this is the last one
-                        pokemon_dict[rsvp_sequence[rsvp_index]].status = NOT_STARTED # reset status for the next pokemon to be drawn in case it has already been shown
-                
-                # Draw the peripheral stimulus grid all at once at a random timepoint
+            if current_pokemon.status == STARTED and tThisFlipGlobal > current_pokemon_onset + RSVP_RATE: # erase the current pokemon after rsvp rate elapses
+                erase_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
+                if not is_final_pokemon:
+                    rsvp_index += 1 # move to the next pokemon in the sequence unless this is the last one
+                    pokemon_dict[rsvp_sequence[rsvp_index]].status = NOT_STARTED # reset status for the next pokemon to be drawn
+                   
+            # SIM trials: draw the peripheral stimulus grid all at once at a random timepoint
+            if is_sim_trial:                
                 for pstim in pstim_to_draw:
                     if pstim.status == NOT_STARTED and tThisFlip >= pstim_start_time:
                         draw_comp(pstim, t, tThisFlip, tThisFlipGlobal, frameN)
                         if pstim.color == target_color and target_pstim_onset == None:
                             target_pstim_onset = pstim.tStartRefresh # If target color in grid, save onset time (from global clock!)
                             thisExp.addData(f'{target_color}.started', comp.tStart) # Save target onset to data file (reference to start of trial)
-
                     if pstim.status == STARTED and tThisFlipGlobal > pstim.tStartRefresh + PERIPH_STIM_DURATION: # Erase grid after pstim duration
                         erase_comp(pstim, t, tThisFlip, tThisFlipGlobal, frameN)
-
-            # Visual flow for SEQ condition
+            
+            # SEQ trials: Draw peripheral stimuli one at a time
             if is_seq_trial:
-                # Draw pokemon RSVP stream
-                if current_pokemon.status == NOT_STARTED and tThisFlip >= 0: # Start RSVP stream at the start of the trial
-                    draw_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
-                    current_pokemon_onset = current_pokemon.tStartRefresh # Record time when the pokemon was first presented
-                    if rsvp_sequence[rsvp_index] == target_pokemon and target_pokemon_onset == None:
-                        thisExp.addData(f'{target_pokemon}.started', comp.tStart) # Add time when target pokemon appears (in reference to start of trial) to data file
-                        target_pokemon_onset = current_pokemon_onset # If pokemon is target pokemon, save first onset time
-
-                if current_pokemon.status == STARTED and tThisFlipGlobal > current_pokemon_onset + RSVP_RATE: # erase the current pokemon after rsvp rate elapses
-                    erase_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
-                    if not is_final_pokemon:
-                        rsvp_index += 1 # move to the next pokemon in the sequence unless this is the last one
-                        pokemon_dict[rsvp_sequence[rsvp_index]].status = NOT_STARTED # reset status for the next pokemon to be drawn
-
-                # Draw peripheral stimuli one at a time
                 if pstim_index < len(pstim_to_draw):
                     current_pstim = pstim_to_draw[pstim_index]
                     scheduled_onset = pstim_onsets[pstim_index]
