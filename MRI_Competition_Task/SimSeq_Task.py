@@ -52,9 +52,6 @@ RESPONSE_WINDOW = 1.5 # sec; responses after this will be coded as FAs
 # Response key
 RESPONSE_KEY = 'space'
 
-ISI = 0.033
-SEQ_TRIAL_DURATION = 4.099
-
 ###### EXPERIMENT SETUP #######################################################################################################
 
 exp_name = 'SimSeq-DV'
@@ -379,16 +376,12 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
         pstim_dict = {color: pstim}
         pstim_to_draw.append(pstim) # add all the pstims to be drawn to a list
     
-    # SEQ only: calculate the pstim onsets with ISI and add extra pokemon to the RSVP
-    if is_seq_trial:
-        pstim_onsets = [i*(PERIPH_STIM_DURATION+ISI) for i in range(len(pstim_to_draw))]
-        additional_pokemon = math.ceil(NUM_PSTIMS * ISI / RSVP_RATE) 
-        distractors = [pokemon_name for pokemon_name in pokemon_names if pokemon_name != target_pokemon] # only non-target pokemon will be added to the RSVP
-        rsvp_sequence.extend(random.choices(distractors, k=additional_pokemon))
-    #SIM only: select random start time for peripheral stimuli
-    else:
-        pstim_start_time = random.choice([0, 1, 2, 3])
-    
+
+    pstim_onsets = [0, 1, 2, 3] # seconds; each peripheral stimuli will be shown one at a time in SEQ condition
+    # SIM only: select random start time for peripheral stimuli
+    if is_sim_trial:
+        pstim_start_time = random.choice(pstim_onsets)
+
     # Reset visual components before trial loop
     components = [pstim_dict, pokemon_dict, kb]
     for comp in components:
@@ -457,8 +450,6 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
             # Visual flow for SEQ condition
             if is_seq_trial:
                 # Draw pokemon RSVP stream
-                pokemon_duration = SEQ_TRIAL_DURATION - TRIAL_DURATION if is_final_pokemon else RSVP_RATE # last pokemon is displayed for 99ms in SEQ to account for ISI
-
                 if current_pokemon.status == NOT_STARTED and tThisFlip >= 0: # Start RSVP stream at the start of the trial
                     draw_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
                     current_pokemon_onset = current_pokemon.tStartRefresh # Record time when the pokemon was first presented
@@ -466,7 +457,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
                         thisExp.addData(f'{target_pokemon}.started', comp.tStart) # Add time when target pokemon appears (in reference to start of trial) to data file
                         target_pokemon_onset = current_pokemon_onset # If pokemon is target pokemon, save first onset time
 
-                if current_pokemon.status == STARTED and tThisFlipGlobal > current_pokemon_onset + pokemon_duration: # erase the current pokemon after rsvp rate elapses
+                if current_pokemon.status == STARTED and tThisFlipGlobal > current_pokemon_onset + RSVP_RATE: # erase the current pokemon after rsvp rate elapses
                     erase_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
                     if not is_final_pokemon:
                         rsvp_index += 1 # move to the next pokemon in the sequence unless this is the last one
@@ -504,7 +495,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
                         kb.rt = kb_allKeys[0].rt # based on start of trial (when kb is initialized)
 
         # End the trial after the total duration
-        if (is_sim_trial and tThisFlip >= TRIAL_DURATION) or (is_seq_trial and tThisFlip >= SEQ_TRIAL_DURATION):
+        if tThisFlip >= TRIAL_DURATION:
             continueRoutine = False 
             for comp in components: # make sure all components are erased
                 if isinstance(comp, dict):
