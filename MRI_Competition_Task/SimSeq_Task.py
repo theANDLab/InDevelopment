@@ -6,8 +6,10 @@ prefs.hardware['audioLatencyMode'] = '3'
 from psychopy.hardware import keyboard
 import math
 import numpy as np
+import csv
 import itertools
 import random
+import itertools
 import os
 import sys
 import time
@@ -15,25 +17,24 @@ logging.console.setLevel(logging.ERROR)
 
 ###### EXPERIMENT PARAMETERS #######################################################################################################
 
-# Initialize the global clock
+# Initialize the global clock and keyboard
 globalClock = core.Clock()
+kb = keyboard.Keyboard(clock = globalClock)
 
-# Dictionaries of feature conditions
-"""Color condition: 2 attention conditions, 2 presentation conditions
-                    6 runs total, 2 blank blocks per run, 12 blocks of sim/seq per run, 3 trials per block, 
-                    predetermined block design"""
-color_condition = {'ATTENTION_CONDS': ['FIX', 'COV'], 
-                   'PRESENTATION_CONDS': ['SIM', 'SEQ'],
-                   'NUM_RUNS': 6, 
-                   'NUM_BLANKS': 2,
-                   'NUM_BLOCKS': 12, 
-                   'NUM_TRIALS': 3,
-                   'BLOCK_DESIGN': [('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM'),('RVF','SEQ'),('LVF','SIM'),
-                                    ('RVF','SIM'),('LVF','SEQ'),('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM')]}
+# Experiment design
+ATTENTION_CONDS = ['FIX', 'COV']
+NUM_RUNS_COLOR = 6 # per feature condition
+NUM_SIM_BLOCKS = 6 # per run
+NUM_SEQ_BLOCKS = 6 # per run
+NUM_BLANK_BLOCKS = 2 # per run
+NUM_TRIALS = 3 # per block
+BLOCK_DESIGN = [('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM'),('RVF','SEQ'),('LVF','SIM'),
+                ('RVF','SIM'),('LVF','SEQ'),('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM')]
 
 # Size
 PERIPHERAL_STIM_SIZE = 1.75 #DVA; size of each peripheral stimulus (circle)
 POKEMON_SIZE = [1.5, 1.5] # DVA, size of the pokemon during RSVP
+POKEMON_POS = (0,0) # location of rsvp pokemon
 NUM_PSTIMS = 4 # number of peripheral stimuli
 GRID_SIZE = 4 #DVA; height and width of the peripheral stimulus grid
 ECCENTRICITY = 7 #DVA from the center of the grid to the center of each peripheral stimulus
@@ -42,25 +43,33 @@ PERIPHERAL_STIM_COLORS = ['red', 'blue', 'green', 'yellow', 'magenta', 'cyan']
 # Timing
 BLANK_BLOCK_DURATION = 16 # seconds
 PERIPH_STIM_DURATION = 1 # seconds
-ISI = 0.033 # seconds; blank fixation between peripheral stimuli for SEQ condition
-SIM_TRIAL_DURATION = PERIPH_STIM_DURATION*NUM_PSTIMS # seconds, not including ISIs
-SEQ_TRIAL_DURATION = SIM_TRIAL_DURATION + (NUM_PSTIMS-1)*ISI # assumes no ISI between trials
+RSVP_RATE = 0.25 #sec; duration of RSVP pokemon presentation
+TRIAL_DURATION = PERIPH_STIM_DURATION*NUM_PSTIMS # sec
 PSTIM_TARGET_FREQ = [1,3] # pstim color targets will occur every 1-3 trials
-POKEMON_TARGET_FREQ = [3.75,7.5] # pokemon targets will occur every 3.75-7.5s in the RSVP
+POKEMON_TARGET_FREQ = [15,30] # pokemon targets will occur every 15-30 pokemon (3.75-7.5s) in the RSVP
+RESPONSE_WINDOW = 1.5 # sec; responses after this will be coded as FAs
 
-# Response Parameters
-RSVP_RATE = 0.25 # seconds; new pokemon every 250ms in the RSVP
+# Response key
 RESPONSE_KEY = 'space'
+
+ISI = 0.033
+SEQ_TRIAL_DURATION = 4.099
 
 ###### EXPERIMENT SETUP #######################################################################################################
 
 exp_name = 'SimSeq-DV'
 exp_info = {'Participant ID': '9999', 
             'Session': '001',
+            'Pokemon': 'Pikachu',
+            'Color': 'red'
             }
 dlg = gui.DlgFromDict(dictionary=exp_info, title=exp_name)
 if dlg.OK == False:
     core.quit()  
+
+# Get targets
+target_pokemon = exp_info['Pokemon'].strip().capitalize() # ensures first letter is capitalized
+target_color = exp_info['Color']
 
 # Establish data output directory
 time_str = time.strftime("_%m_%d_%Y", time.localtime())
@@ -84,36 +93,21 @@ thisExp = data.ExperimentHandler(name=exp_name, version='', extraInfo=exp_info,
 
 ###### INITIALIZE VISUAL COMPONENTS #######################################################################################################
 
-kb = keyboard.Keyboard()
-
 # Load Pokémon images from folder
 pokemon_dir = os.path.join(root_dir, 'pokemon_lightgray')
 pokemon_names = ["Bulbasaur", "Pikachu", "Squirtle", "Charmander", "Magikarp", "Raticate", "Pidgey",
     "Metapod", "Jigglypuff", "Butterfree", "Psyduck", "Caterpie", "Krabby",
     "Haunter", "Vulpix", "Eevee", "Sandshrew", "Wartortle", "Charmeleon", "Clefairy",
     "Ponyta", "Mankey"]
+    
 pokemon_dict = {name: visual.ImageStim(win, name=name, image=os.path.join(pokemon_dir, f"{i+1:03}.png"))
     for i, name in enumerate(pokemon_names)} # dictionary of the pokemon where the key is their name and the values are the ImageStim
 
-# Components for welcome screen
+# Text components for welcome, instructions, and end screens
 welcome_text = visual.TextStim(win, pos=(0,0), height= 1.5, wrapWidth=27, text=("Welcome to the Pokémon Party game!"))
-# Subset of pokemon to be shown on the welcome screen with their position and size
-welcome_pokemon = {
-    "Bulbasaur":  ((10, -5), (5, 5)),
-    "Pikachu":    ((5, -5),  (5, 5)),
-    "Squirtle":   ((0, -5),  (5, 5)),
-    "Charmander": ((-5, -5), (5, 5)),
-    "Krabby":     ((-10, -5), (5, 5)),
-    "Magikarp":   ((-10, 5), (5, 5)),
-    "Pidgey":     ((-5, 5),  (5, 5)),
-    "Metapod":    ((0, 5),   (5, 5)),
-    "Eevee":      ((5, 5),   (5, 5)),
-    "Raticate":   ((10, 5),  (5, 5))} 
-
-# Components for instructions screen
 instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=())
-
 end_text = visual.TextStim(win, wrapWidth=27, text=())
+thanks_text = visual.TextStim(win, wrapWidth=30, text=("Thanks for coming to the Pokémon Party!"))
 
 # Calculate the coordinates of the center of the grid based on the given parameters
 cent2cent_spacing = GRID_SIZE - PERIPHERAL_STIM_SIZE # 2.25DVA; distance from center to center of peripheral stimuli
@@ -131,9 +125,6 @@ lvf_topleft = [-gridcent_x - offset, gridcent_y + offset]  # Top left peripheral
 lvf_topright = [-gridcent_x + offset, gridcent_y + offset]  # Top right peripheral stimulus in LVF
 lvf_botleft = [-gridcent_x - offset, gridcent_y - offset]  # Bottom left peripheral stimulus in LVF
 lvf_botright = [-gridcent_x + offset, gridcent_y - offset]  # Bottom right peripheral stimulus in LVF
-
-# Components for the end of the experiment
-thanks_text = visual.TextStim(win, wrapWidth=30, text=("Thanks for coming to the Pokémon Party!"))
 
 ###### FUNCTIONS #######################################################################################################
 
@@ -164,8 +155,6 @@ def draw_comp(comp, t, tThisFlip, tThisFlipGlobal, frameN):
     comp.status = STARTED
     if not isinstance(comp, keyboard.Keyboard):
         comp.setAutoDraw(True)
-    else:
-        thisExp.addData('kb.started', comp.tStart)
 
 def erase_comp(comp, t, tThisFlip, tThisFlipGlobal, frameN):
     """ Erases the stimuli displayed in trials. """
@@ -175,161 +164,176 @@ def erase_comp(comp, t, tThisFlip, tThisFlipGlobal, frameN):
     comp.status = FINISHED
     if not isinstance(comp, keyboard.Keyboard):
         comp.setAutoDraw(False)
-    else:
-        thisExp.addData('kb.stopped', comp.tStop)
-
-import random
-import itertools
-
-def generate_all_visuals(feature_config, target_pokemon, target_color):
+        
+# TODO: function to save visuals
+    
+def generate_blank_rsvps(num_runs):
+    """" 
+    Returns a dictionary where the keys are the unique run indices and the values are lists 
+    of each blank block's RSVP sequence for that run. (0-indexed)
+    
+    Example:
+        Calling generate_blank_rsvps()[2][0] will give the RSVP sequence (list of pokemon names) 
+        of the first blank block in the third run. 
     """
-    Generate all visual stimuli for a feature condition run, including RSVP Pokémon sequences and peripheral stimulus grids.
+    num_unique_runs = int(num_runs//len(ATTENTION_CONDS))
+    num_unique_blanks = NUM_BLANK_BLOCKS * num_unique_runs
+    pokemon_per_blank = int(BLANK_BLOCK_DURATION // RSVP_RATE)
+    all_blank_sequences = []
+    
+    for blank_block in range(num_unique_blanks):
+        # Get times for target occurrences in this block
+        target_indices = []
+        next_target_idx = random.randint(*POKEMON_TARGET_FREQ)
+        while next_target_idx < pokemon_per_blank:
+            target_indices.append(next_target_idx)
+            next_target_idx += random.randint(*POKEMON_TARGET_FREQ)
+        # Build sequence, prevent back-to-back repeats
+        sequence = []
+        for idx in range(pokemon_per_blank):
+            if idx in target_indices:
+                sequence.append(target_pokemon)
+            else:
+                distractor_options = [p for p in pokemon_names if p != target_pokemon]
+                if idx > 0:
+                    distractor_options = [p for p in distractor_options if p != sequence[-1]] #ensure no back to back pokemon
+                sequence.append(random.choice(distractor_options))
+        all_blank_sequences.append(sequence)
 
-    Args:
-        feature_config (dict): Experiment parameters.
-        target_pokemon (str): The Pokémon that will be the RSVP target.
-        target_color (str): The color that will be the grid target.
-
-    Returns:
-        all_run_visuals (dict): For each run, a list of trial dicts with:
-            'block_num', 'trial_num', 'vf', 'presentation_cond', 
-            'periph_stim_grid', 'rsvp_sequence'.
-        blanks_rsvps (dict): For each run, the blank block RSVP sequences.
+    # Assign pairs (start/end) per run
+    all_blank_rsvps = {}
+    seq_idx = 0
+    for run in range(num_unique_runs):
+        all_blank_rsvps[run] = [all_blank_sequences[seq_idx], all_blank_sequences[seq_idx + 1]]
+        seq_idx += len(ATTENTION_CONDS)
+        
+    return all_blank_rsvps
+    
+def generate_trial_rsvps(num_runs):
+    """ 
+    Returns a dictionary where the keys are the unique run indices and the values are lists 
+    of each trial's RSVP sequence for that run.(0-indexed)
+        
+    Example:
+        Calling generate_trial_rsvps()[0][32] will give the RSVP sequence (list of pokemon names) 
+        of the 33rd trial in the first run. 
     """
-    # --- Extract config
-    num_blocks = feature_config['NUM_BLOCKS']
-    trials_per_block = feature_config['NUM_TRIALS']
-    block_structure = feature_config['BLOCK_DESIGN']
-    runs_total = feature_config['NUM_RUNS']
-    blanks_per_run = feature_config['NUM_BLANKS']
-    attention_conditions = feature_config['ATTENTION_CONDS']
-    num_attention_types = len(attention_conditions)
-    num_unique_runs = runs_total // num_attention_types # run visuals will be repeated once across each attention condition
-    trials_per_run = num_blocks * trials_per_block
-    run_duration = ((num_blocks/2)*trials_per_block)*SIM_TRIAL_DURATION + ((num_blocks/2)*trials_per_block)*SEQ_TRIAL_DURATION
 
-    # --- Blank RSVP Generation ---
-    def create_blank_rsvp_sequences():
-        """Generate the RSVP lists for blank blocks."""
-        num_unique_blanks = int(blanks_per_run * runs_total // 2)
-        pokemon_per_blank = int(BLANK_BLOCK_DURATION // RSVP_RATE)
-        all_blank_sequences = []
-        for block in range(num_unique_blanks):
-            # Get times for target occurrences in this block
-            target_indices = []
-            time_to_next_target = random.uniform(*POKEMON_TARGET_FREQ)
-            while time_to_next_target < BLANK_BLOCK_DURATION:
-                idx = int(time_to_next_target // RSVP_RATE)
-                if idx < pokemon_per_blank:
-                    target_indices.append(idx)
-                time_to_next_target += random.uniform(*POKEMON_TARGET_FREQ)
-            # Build sequence, prevent back-to-back repeats
-            sequence = []
-            for idx in range(pokemon_per_blank):
-                if idx in target_indices:
-                    sequence.append(target_pokemon)
-                else:
-                    distractor_options = [p for p in pokemon_names if p != target_pokemon]
-                    if idx > 0:
-                        distractor_options = [p for p in distractor_options if p != sequence[-1]]
-                    sequence.append(random.choice(distractor_options))
-            all_blank_sequences.append(sequence)
-        # Repeat the sequences once per attention condition
-        all_blank_sequences *= num_attention_types
-        # Assign pairs (start/end) per run
-        blank_rsvps = {}
-        seq_idx = 0
-        for run in range(1, runs_total + 1):
-            blank_rsvps[run] = [all_blank_sequences[seq_idx], all_blank_sequences[seq_idx + 1]]
-            seq_idx += num_attention_types
-        return blank_rsvps
+    pokemon_per_trial = int(TRIAL_DURATION // RSVP_RATE)
+    total_pokemon = int((NUM_TRIALS*(NUM_SIM_BLOCKS+NUM_SEQ_BLOCKS))*pokemon_per_trial) # in one run
+    run_seq_list = []
 
-    # --- Peripheral Grid Generation ---
-    def get_grid_assignments(target_color):
-        """Return two lists: all grids with and without the target color."""
-        all_color_combos = list(itertools.combinations(PERIPHERAL_STIM_COLORS, NUM_PSTIMS)) # all possible subsets of 4 colors from 6
-        all_grids = []
-        for combo in all_color_combos:
-            all_grids.extend(itertools.permutations(combo)) # all possible ways to uniquely order those 4 colors
-        random.shuffle(all_grids)
-        grids_with_target = [grid for grid in all_grids if target_color in grid]
-        grids_without_target = [grid for grid in all_grids if target_color not in grid]
-        return grids_with_target, grids_without_target
+    for unique_run in range(int(num_runs//len(ATTENTION_CONDS))):
+        target_pokemon_idx = []
+        next_target_idx = random.randint(*POKEMON_TARGET_FREQ)
+        while next_target_idx < total_pokemon:
+            target_pokemon_idx.append(next_target_idx)
+            next_target_idx += random.randint(*POKEMON_TARGET_FREQ) # list of all target for the run
+        # Create the sequence for the entire run
+        run_sequence = []
+        for rsvp_idx in range(total_pokemon):
+            if rsvp_idx in target_pokemon_idx:
+                run_sequence.append(target_pokemon)
+            else:
+                distractors = [p for p in pokemon_names if p!= target_pokemon]
+                if rsvp_idx > 0:
+                    distractors = [p for p in distractors if p != run_sequence[-1]]
+                run_sequence.append(random.choice(distractors))
+        run_seq_list.append(run_sequence)
 
-    # --- Per-run trial dictionary generation ---
-    def create_trials_for_run(run_id, grids_with_target, grids_without_target):
-        """Create all trial dicts for a single run."""
-        # Schedule trials that will contain the target color in their grid
-        target_grid_trials = []
-        first_target_trial = random.randint(*PSTIM_TARGET_FREQ)
-        trial_idx = first_target_trial
-        while trial_idx < trials_per_run:
-            target_grid_trials.append(trial_idx)
-            trial_idx += random.randint(*PSTIM_TARGET_FREQ)
+    all_trial_rsvps = {}
+    for run_idx, run_sequence in enumerate(run_seq_list):
+        trial_sequences = [run_sequence[i:i + pokemon_per_trial] for i in range(0, len(run_sequence), pokemon_per_trial)]
+        all_trial_rsvps[run_idx] = trial_sequences
+
+    return all_trial_rsvps
+    
+def assign_grids(num_runs):
+    """ 
+    Returns a list of lists of each trial's RSVP sequence for that run.
+        
+    Example:
+        Calling assign_grids()[0][32] will give the grid layout (list of colors) for 
+        the 33rd trial in the first run. 
+    """
+
+    trials_per_run = NUM_TRIALS*(NUM_SEQ_BLOCKS+NUM_SIM_BLOCKS)
+    num_attention_conds = len(ATTENTION_CONDS)
+
+    # Get lists of target and nontarget grids
+    all_color_combos = list(itertools.combinations(PERIPHERAL_STIM_COLORS, NUM_PSTIMS)) # all possible subsets of 4 colors from 6
+    all_configs = []
+    for combo in all_color_combos:
+        all_configs.extend(itertools.permutations(combo)) # all possible ways to uniquely order those 4 colors
+    random.shuffle(all_configs)
+    rvf_target_grids = [grid for grid in all_configs if target_color in grid and grid[2] == target_color] # target in bottom left
+    lvf_target_grids = [grid for grid in all_configs if target_color in grid and grid[3] == target_color] # target in bottom right
+    grids_without_target = [grid for grid in all_configs if target_color not in grid]
+    
+    all_grids = []
+    for run in range(num_runs//num_attention_conds):
+        # Create list of trial indices for trials that will contain the target color
+        target_trials = []
+        target_trial_idx = random.randint(*PSTIM_TARGET_FREQ) # randomly select first target trial
+        while target_trial_idx <= trials_per_run:
+            target_trials.append(target_trial_idx)
+            target_trial_idx += random.randint(*PSTIM_TARGET_FREQ)
+            
         # Assign grids to each trial (unique if possible)
-        grid_assignments = [None] * trials_per_run
+        grid_assignments = []
         used_grids = set()
-        for idx in range(trials_per_run):
-            if idx in target_grid_trials:
-                available = [g for g in grids_with_target if g not in used_grids] or grids_with_target
+        for trial_idx in range(trials_per_run):
+            if trial_idx in target_trials:
+                lvf_available = [g for g in lvf_target_grids if g not in used_grids] or lvf_target_grids
+                rvf_available = [g for g in rvf_target_grids if g not in used_grids] or rvf_target_grids
             else:
                 available = [g for g in grids_without_target if g not in used_grids] or grids_without_target
-            chosen_grid = random.choice(available)
-            grid_assignments[idx] = chosen_grid
+            # If target trial, assign grid based on the visual field of the block that the trial falls within
+            if trial_idx in target_trials:
+                block_num = (trial_idx// NUM_TRIALS) % len(BLOCK_DESIGN)
+                if BLOCK_DESIGN[block_num][0] == 'RVF':
+                    chosen_grid = random.choice(rvf_available)
+                else:
+                    chosen_grid = random.choice(lvf_available)
+            else:
+                chosen_grid = random.choice(available)
+            grid_assignments.append(chosen_grid)
             used_grids.add(chosen_grid)
-        # --- Pokémon RSVP Scheduling ---
-        # When does the target Pokémon appear in the run?
-        target_pokemon_times = []
-        next_target_time = random.uniform(*POKEMON_TARGET_FREQ)
-        while next_target_time < run_duration:
-            target_pokemon_times.append(next_target_time)
-            next_target_time += random.uniform(*POKEMON_TARGET_FREQ)
-        # Map each target Pokémon onset to a trial & its time within trial
-        trial_target_onsets = {i: [] for i in range(trials_per_run)}
-        for t in target_pokemon_times:
-            trial_num = int(t // SIM_TRIAL_DURATION)
-            if trial_num < trials_per_run:
-                time_within_trial = t - (trial_num * SIM_TRIAL_DURATION)
-                trial_target_onsets[trial_num].append(time_within_trial)
-        # --- Build trial dicts ---
-        trial_dicts = []
-        for block_idx, (visual_field, present_cond) in enumerate(block_structure):
-            for trial_in_block in range(trials_per_block):
-                trial_num = block_idx * trials_per_block + trial_in_block
-                grid = grid_assignments[trial_num]
-                # Build this trial's RSVP sequence
-                num_pokemons_in_trial = int(SIM_TRIAL_DURATION // RSVP_RATE)
-                sequence = []
-                for step in range(num_pokemons_in_trial):
-                    timepoint = step * RSVP_RATE
-                    # Insert target Pokémon at scheduled times
-                    if any(abs(timepoint - t) < RSVP_RATE / 2 for t in trial_target_onsets[trial_num]):
-                        sequence.append(target_pokemon)
-                    else:
-                        options = [p for p in pokemon_names if p != target_pokemon]
-                        if step > 0:
-                            options = [p for p in options if p != sequence[-1]]
-                        sequence.append(random.choice(options))
-                trial_dicts.append({
-                    'block_num': block_idx + 1,
-                    'trial_num': trial_num,
-                    'visual_field': visual_field,
-                    'presentation_cond': present_cond,
-                    'peripheral_grid': grid,
-                    'rsvp_sequence': sequence
-                })
-        return trial_dicts
+        all_grids.append(grid_assignments)
 
-    # --- Main routine ---
-    blanks_rsvps = create_blank_rsvp_sequences()
-    grids_with_target, grids_without_target = get_grid_assignments(target_color)
-    all_run_visuals = {}
-    unique_run_trials = [create_trials_for_run(i + 1, grids_with_target, grids_without_target) for i in range(num_unique_runs)]
-    for run_idx in range(1, runs_total + 1):
-        # Use the same visuals for corresponding runs across attention conditions
-        all_run_visuals[f"run{run_idx}"] = unique_run_trials[(run_idx - 1) % num_unique_runs]
+    return all_grids
+    
+def create_trial_dicts(run_idx, all_grids, all_trial_rsvps):
+    """
+    Generates trial dictionaries for all of the trials in a run. Call once at the start of each run. 
 
-    return all_run_visuals, blanks_rsvps
+    Args:
+        run_idx (int): index of the run (0-indexed)
+        all_grids (list): all of the grid assignments for all unique runs.
+        all_trial_rsvps (dict): all of the rsvp sequences for all trials for all unique runs. 
+        
+    Returns:
+        trial_dicts (list): Each value is a trial dictionary including:
+            'block_num', 'trial_num', 'visual_field', 'presentation_cond', 
+            'peripheral_grid', 'rsvp_seq'. 
+            
+    Example:
+        Calling create_trial_dicts(0, all_grids_all_trial_rsvps)[32] gives the trial dictionary of
+        the 33rd trial in the first run. 
+    """
+    trial_dicts = []
+    for block_idx, (visual_field, present_cond) in enumerate(BLOCK_DESIGN):
+        for trial_in_block in range(NUM_TRIALS):
+            trial_idx = block_idx * NUM_TRIALS + trial_in_block
+            trial_dicts.append({
+                'block_num': block_idx + 1,
+                'trial_num': trial_idx + 1,
+                'visual_field': visual_field,
+                'presentation_cond': present_cond,
+                'peripheral_grid': all_grids[run_idx][trial_idx],
+                'rsvp_seq': all_trial_rsvps[run_idx][trial_idx]
+            }) 
+    return trial_dicts
     
 def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
     """
@@ -361,7 +365,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
     is_seq_trial = trial_dict['presentation_cond'] == 'SEQ'
     is_sim_trial = trial_dict['presentation_cond'] == 'SIM'
     pstim_grid = trial_dict['peripheral_grid']
-    rsvp_sequence = trial_dict['rsvp_sequence']
+    rsvp_sequence = trial_dict['rsvp_seq']
 
     # Extract peripheral stim locations
     if vf[0] == 'R':
@@ -453,7 +457,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
             # Visual flow for SEQ condition
             if is_seq_trial:
                 # Draw pokemon RSVP stream
-                pokemon_duration = SEQ_TRIAL_DURATION - SIM_TRIAL_DURATION if is_final_pokemon else RSVP_RATE # last pokemon is displayed for 99ms in SEQ to account for ISI
+                pokemon_duration = SEQ_TRIAL_DURATION - TRIAL_DURATION if is_final_pokemon else RSVP_RATE # last pokemon is displayed for 99ms in SEQ to account for ISI
 
                 if current_pokemon.status == NOT_STARTED and tThisFlip >= 0: # Start RSVP stream at the start of the trial
                     draw_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
@@ -500,7 +504,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
                         kb.rt = kb_allKeys[0].rt # based on start of trial (when kb is initialized)
 
         # End the trial after the total duration
-        if (is_sim_trial and tThisFlip >= SIM_TRIAL_DURATION) or (is_seq_trial and tThisFlip >= SEQ_TRIAL_DURATION):
+        if (is_sim_trial and tThisFlip >= TRIAL_DURATION) or (is_seq_trial and tThisFlip >= SEQ_TRIAL_DURATION):
             continueRoutine = False 
             for comp in components: # make sure all components are erased
                 if isinstance(comp, dict):
@@ -562,7 +566,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
 
     return accuracy
 
-def run_feature_cond(feature_condition, target_pokemon, target_color):
+def run_feature_cond():
     """
     Runs all of the blocks in a single feature condition. 
     
@@ -572,21 +576,22 @@ def run_feature_cond(feature_condition, target_pokemon, target_color):
         target_color (str): Name of color.
     """
 
-    runs_per_attncond = feature_condition['NUM_RUNS']//len(feature_condition['ATTENTION_CONDS'])
-    
+    runs_per_attncond = NUM_RUNS_COLOR//len(ATTENTION_CONDS)
+
     # Step 1: Generate the RSVP sequences and peripheral stimulus grids for all runs in the feature condition
-    all_run_visuals, blanks_rsvps = generate_all_visuals(feature_condition, target_pokemon, target_color)
+    blanks_rsvps = generate_blank_rsvps(NUM_RUNS_COLOR)
+    trial_rsvps = generate_trial_rsvps(NUM_RUNS_COLOR)
+    all_grids = assign_grids(NUM_RUNS_COLOR)
 
     # Step 2: Perform each run
-    for run in range(1, feature_condition['NUM_RUNS'] + 1):
+    for run in range(1, NUM_RUNS_COLOR + 1):
+        trial_dicts = create_trial_dicts(run-1, all_grids, trial_rsvps) # trial dicts for this run
         run_accuracy = 0
-        run_idx = f"run{run}"
-        run_visuals = all_run_visuals[run_idx] # trial dicts for all the trials in this run
-        blank_block_rsvp = blanks_rsvps[run] # 2 RSVP lists for the blank blocks in this run
+        blank_block_rsvps = blanks_rsvps[run-1] # 2 RSVP lists for the blank blocks in this run
         
         # Show instructions if this is the first run in the attention condition; kind of hacky only works with 2 attn conds
         if run <= runs_per_attncond:
-            attention_cond = feature_condition['ATTENTION_CONDS'][0]
+            attention_cond = ATTENTION_CONDS[0]
             if run == 1:
                 instructions_text.text = (
                 "There's a Pokémon Party happening right now, and the Pokémon are playing hide and seek!\n\n"
@@ -595,7 +600,7 @@ def run_feature_cond(feature_condition, target_pokemon, target_color):
                 "Ready to start playing?")
             
         elif run > runs_per_attncond:
-            attention_cond = feature_condition['ATTENTION_CONDS'][1]
+            attention_cond = ATTENTION_CONDS[1]
             if run == 1+runs_per_attncond:
                 instructions_text.text = (
                 "There's a Pokémon Party happening right now, and the Pokémon are getting hungry!\n\n"
@@ -618,7 +623,7 @@ def run_feature_cond(feature_condition, target_pokemon, target_color):
         thisExp.addData('instructions.stopped', globalClock.getTime(format='float')) 
         
         # Blank block at start of run; display an RSVP of distractors
-        for pokemon in blank_block_rsvp[0]:
+        for pokemon in blank_block_rsvps[0]:
             pokemon_dict[pokemon].pos = (0,0)
             pokemon_dict[pokemon].draw()
             win.flip()
@@ -631,11 +636,11 @@ def run_feature_cond(feature_condition, target_pokemon, target_color):
         
         # Feed trial dictionary and attention condition to the run trial function
         thisExp.nextEntry() 
-        for trial in run_visuals:
+        for trial in trial_dicts:
             run_accuracy += run_trial(trial, attention_cond, target_pokemon, target_color)
         
         # Blank block at end of run; display an RSVP of distractors 
-        for pokemon in blank_block_rsvp[1]:
+        for pokemon in blank_block_rsvps[1]:
             pokemon_dict[pokemon].pos = (0,0)
             pokemon_dict[pokemon].draw()
             win.flip()
@@ -647,7 +652,7 @@ def run_feature_cond(feature_condition, target_pokemon, target_color):
         thisExp.addData('blank_block.stopped', globalClock.getTime(format='float'))
         
         # Step 3: Calculate hit rate and show feedback statement at the end of the run based on attention condition
-        hit_rate = run_accuracy / (feature_condition['NUM_RUNS']*feature_condition['NUM_TRIALS']) ## ANDREW: different feedback after the run depending on hit rate?
+        hit_rate = run_accuracy / (NUM_RUNS_COLOR*NUM_TRIALS) ## ANDREW: different feedback after the run depending on hit rate?
         if attention_cond == 'FIX':
             end_text.text = (f"Great job finding {target_pokemon}!")
             pokemon_dict[target_pokemon].pos = (0, -5) 
@@ -655,9 +660,9 @@ def run_feature_cond(feature_condition, target_pokemon, target_color):
             pokemon_dict[target_pokemon].draw()
         elif attention_cond == 'COV':
             end_text.text = (f"Great job feeding the Pokémon {target_color} circles!")
-            pstim_dict[target_color].pos = (0,-5)
-            pokemon_dict[target_pokemon].size = (5,5)
-            pstim_dict[target_color].draw()
+            # pstim_dict[target_color].pos = (0,-5)
+            # pokemon_dict[target_pokemon].size = (5,5)
+            # pstim_dict[target_color].draw()
         end_text.draw()
         win.flip()
         
@@ -679,6 +684,18 @@ exp_info['expStart'] = data.getDateStr(format = '%Y-%m-%d %Hh%M.%S.%f %z', fract
 thisExp.status = STARTED
 
 # Draw welcome screen with Pokémon images
+welcome_pokemon = {
+    "Bulbasaur":  ((10, -5), (5, 5)),
+    "Pikachu":    ((5, -5),  (5, 5)),
+    "Squirtle":   ((0, -5),  (5, 5)),
+    "Charmander": ((-5, -5), (5, 5)),
+    "Krabby":     ((-10, -5), (5, 5)),
+    "Magikarp":   ((-10, 5), (5, 5)),
+    "Pidgey":     ((-5, 5),  (5, 5)),
+    "Metapod":    ((0, 5),   (5, 5)),
+    "Eevee":      ((5, 5),   (5, 5)),
+    "Raticate":   ((10, 5),  (5, 5))} 
+
 win.mouseVisible = False  # Hide mouse cursor
 welcome_text.draw()
 for name, (pos, size) in welcome_pokemon.items():
@@ -707,7 +724,7 @@ trialClock = core.Clock()
 win.flip() 
 
 # Run each feature condition
-run_feature_cond(color_condition, 'Pikachu', 'red')
+run_feature_cond()
 
 ###### END EXPERIMENT #######################################################################################################
 
