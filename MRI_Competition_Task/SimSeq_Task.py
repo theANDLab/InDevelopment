@@ -508,7 +508,8 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
                         erase_comp(comp[i], t, tThisFlip, tThisFlipGlobal, frameN)
                 else:
                     erase_comp(comp, t, tThisFlip, tThisFlipGlobal, frameN)
-
+            win.clearAutoDraw()
+                    
         if continueRoutine:
             win.flip()  # refresh the screen
 
