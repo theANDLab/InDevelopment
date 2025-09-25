@@ -23,7 +23,7 @@ kb = keyboard.Keyboard(clock = globalClock)
 
 # Experiment design
 ATTENTION_CONDS = ['FIX', 'COV']
-NUM_RUNS_COLOR = 6 # per feature condition
+NUM_RUNS = 6 # number of runs per feature condition
 NUM_SIM_BLOCKS = 6 # per run
 NUM_SEQ_BLOCKS = 6 # per run
 NUM_BLANK_BLOCKS = 2 # per run
@@ -69,11 +69,12 @@ target_pokemon = exp_info['Pokemon'].strip().capitalize() # ensures first letter
 target_color = exp_info['Color']
 
 # Establish data output directory
-time_str = time.strftime("_%m_%d_%Y", time.localtime())
+time_str = time.strftime("_%m_%d_%Y_%H_%M", time.localtime())
 root_dir = os.path.dirname(os.path.abspath(__file__))
 data_folder = os.path.join(root_dir, 'data', f"{exp_name}_{exp_info['Participant ID']}_Session{exp_info['Session']}_{time_str}")
 os.makedirs(data_folder, exist_ok=True)
 filename = os.path.join(data_folder, f"{exp_name}_{exp_info['Participant ID']}_Session{exp_info['Session']}")
+blankblock_filename = os.path.join(data_folder, f"blank_blocks_{exp_info['Participant ID']}_Session{exp_info['Session']}")
 
 # Window setup (will need to be adjusted to match the MRI monitor)
 win = visual.Window(fullscr=True,color=[0,0,0], screen=0, 
@@ -87,6 +88,10 @@ thisExp = data.ExperimentHandler(name=exp_name, version='', extraInfo=exp_info,
                                 runtimeInfo=None, originPath=os.path.abspath(__file__),
                                 savePickle=True, saveWideText=True,
                                 dataFileName=filename)
+
+blankExp = data.ExperimentHandler(name='blank_blocks',extraInfo=exp_info,
+                                savePickle=True, saveWideText=True,
+                                dataFileName=blankblock_filename)
 
 ###### INITIALIZE VISUAL COMPONENTS #######################################################################################################
 
@@ -102,7 +107,18 @@ pokemon_dict = {name: visual.ImageStim(win, name=name, image=os.path.join(pokemo
 
 # Text components for welcome, instructions, and end screens
 welcome_text = visual.TextStim(win, pos=(0,0), height= 1.5, wrapWidth=27, text=("Welcome to the Pokémon Party game!"))
-instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=())
+fix_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
+        "There's a Pokémon Party happening right now, and the Pokémon are playing hide and seek!\n\n"
+        f"The Pokémon are having trouble finding {target_pokemon}! Can you help them?\n\n"
+        f"Press the button as fast as you can every time you see {target_pokemon}.\n\n\n"
+        "Ready to start playing?"
+    ))
+cov_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
+        "There's a Pokémon Party happening right now, and the Pokémon are getting hungry!\n\n"
+        f"The Pokémon like to eat {target_color} circles! Can you help feed them?\n\n"
+        f"Press the button as fast as you can every time you see a {target_color} circle.\n\n\n"
+        "Ready to start playing?"
+    ))
 end_text = visual.TextStim(win, wrapWidth=27, text=())
 thanks_text = visual.TextStim(win, wrapWidth=30, text=("Thanks for coming to the Pokémon Party!"))
 
@@ -164,7 +180,7 @@ def erase_comp(comp, t, tThisFlip, tThisFlipGlobal, frameN):
         
 # TODO: function to save visuals
     
-def generate_blank_rsvps(num_runs):
+def generate_blank_rsvps():
     """" 
     Returns a dictionary where the keys are the unique run indices and the values are lists 
     of each blank block's RSVP sequence for that run. (0-indexed)
@@ -173,7 +189,7 @@ def generate_blank_rsvps(num_runs):
         Calling generate_blank_rsvps()[2][0] will give the RSVP sequence (list of pokemon names) 
         of the first blank block in the third run. 
     """
-    num_unique_runs = int(num_runs//len(ATTENTION_CONDS))
+    num_unique_runs = int(NUM_RUNS//len(ATTENTION_CONDS))
     num_unique_blanks = NUM_BLANK_BLOCKS * num_unique_runs
     pokemon_per_blank = int(BLANK_BLOCK_DURATION // RSVP_RATE)
     all_blank_sequences = []
@@ -206,7 +222,7 @@ def generate_blank_rsvps(num_runs):
         
     return all_blank_rsvps
     
-def generate_trial_rsvps(num_runs):
+def generate_trial_rsvps():
     """ 
     Returns a dictionary where the keys are the unique run indices and the values are lists 
     of each trial's RSVP sequence for that run.(0-indexed)
@@ -220,7 +236,7 @@ def generate_trial_rsvps(num_runs):
     total_pokemon = int((NUM_TRIALS*(NUM_SIM_BLOCKS+NUM_SEQ_BLOCKS))*pokemon_per_trial) # in one run
     run_seq_list = []
 
-    for unique_run in range(int(num_runs//len(ATTENTION_CONDS))):
+    for unique_run in range(int(NUM_RUNS//len(ATTENTION_CONDS))):
         target_pokemon_idx = []
         next_target_idx = random.randint(*POKEMON_TARGET_FREQ)
         while next_target_idx < total_pokemon:
@@ -245,7 +261,7 @@ def generate_trial_rsvps(num_runs):
 
     return all_trial_rsvps
     
-def assign_grids(num_runs):
+def assign_grids():
     """ 
     Returns a list of lists of each trial's RSVP sequence for that run.
         
@@ -268,7 +284,7 @@ def assign_grids(num_runs):
     grids_without_target = [grid for grid in all_configs if target_color not in grid]
     
     all_grids = []
-    for run in range(num_runs//num_attention_conds):
+    for run in range(NUM_RUNS//num_attention_conds):
         # Create list of trial indices for trials that will contain the target color
         target_trials = []
         target_trial_idx = random.randint(*PSTIM_TARGET_FREQ) # randomly select first target trial
@@ -332,7 +348,84 @@ def create_trial_dicts(run_idx, all_grids, all_trial_rsvps):
             }) 
     return trial_dicts
     
-def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
+def run_blank_block(rsvp, run_num, blank_num): 
+    """ Function to run a single blank block. """
+    
+    # Add data to data file
+    blankExp.addData('blank_block.started', globalClock.getTime(format='float'))
+    blankExp.addData('rsvp_stim', rsvp)
+    
+    # Reset tracking variables
+    last_target_onset = None # will store the most recent target onset
+    total_hits = 0
+    
+    for current_pokemon in rsvp:
+        blankExp.addData('run', run_num)
+        blankExp.addData('blank_block', blank_num)
+        hit = 0
+        is_target = (current_pokemon == target_pokemon)
+        
+        # Set pokemon location
+        pokemon_dict[current_pokemon].pos = (0,0)
+
+        # Get a time stamp of when the while loop started
+        start_time = globalClock.getTime(format='float')
+        blankExp.addData('loop_start', start_time)
+        pokemon_onset = None
+        
+        # while loop will draw pokemon and check for keypresses for RSVP_RATE duration
+        while (globalClock.getTime() - start_time) < RSVP_RATE:
+            
+            # Draw pokemon every frame
+            pokemon_dict[current_pokemon].draw()
+            
+            # Capture pokemon onset once during first window flip
+            if pokemon_onset is None:
+                win.callOnFlip(kb.clearEvents)
+                def on_flip():
+                    nonlocal pokemon_onset, last_target_onset
+                    t = globalClock.getTime(format='float')
+                    pokemon_onset = t
+                    blankExp.addData('pokemon', current_pokemon)
+                    blankExp.addData('onset', t)
+                    if is_target:
+                        last_target_onset = t
+                        blankExp.addData('target_onset', t)
+                win.callOnFlip(on_flip)
+            win.flip()
+            
+            # Get all keys pressed during that 250ms window
+            keys = kb.getKeys(keyList=[RESPONSE_KEY, 'escape'], waitRelease=False, clear = False)
+            
+            # Analyze key presses
+            for key in keys:
+                if key.name == 'escape':
+                    end_task()
+                    
+                if key.name == RESPONSE_KEY:
+                    press_time = key.rt # relative to globalClock, so NOT rt from target onset
+                    blankExp.addData('pokemon', pokemon)
+                    blankExp.addData('press_time', press_time)
+                        
+                    # Score against the most recent target onset
+                    if last_target_onset is not None:
+                        # compute rt since last target onset
+                        rt = press_time - last_target_onset
+                        blankExp.addData('rt', rt)
+                        if rt <= RESPONSE_WINDOW:
+                            hit = 1
+                            total_hits += hit
+                            blankExp.addData('hit', hit)
+                    # next row in data file after a keypress to ensure we capture all of them
+        blankExp.nextEntry()
+    
+    # Save block data
+    blankExp.addData('blank_block.stopped', globalClock.getTime(format='float'))
+    blankExp.nextEntry()
+    
+    return total_hits
+    
+def run_trial(trial_dict, attention_cond, target_pokemon, target_color):    
     """
     Function to run a single trial.
 
@@ -402,7 +495,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
     # Save trial variables to the data file
     thisExp.addData('pres_cond', trial_dict['presentation_cond'])
     thisExp.addData('block', trial_dict['block_num'] )
-    thisExp.addData('trial', trial_dict['trial_num']+1)
+    thisExp.addData('trial', trial_dict['trial_num'])
     thisExp.addData('visual_field', vf[0])
     thisExp.addData('peripheral_grid', pstim_grid)
     thisExp.addData('rsvp_stim', rsvp_sequence)
@@ -422,8 +515,9 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
             if current_pokemon.status == NOT_STARTED and tThisFlip >= 0: # Start RSVP stream at the start of the trial
                 draw_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
                 current_pokemon_onset = current_pokemon.tStartRefresh # Record time when the pokemon was first presented
-                if rsvp_sequence[rsvp_index] == target_pokemon and target_pokemon_onset == None:
-                    thisExp.addData(f'{target_pokemon}.started', comp.tStart) # Add time when target pokemon appears (in reference to start of trial) to data file
+                if current_pokemon.name == target_pokemon and target_pokemon_onset == None:
+                    thisExp.addData(f'{current_pokemon.name}.started', current_pokemon.tStart) # Add time when target pokemon appears (in reference to start of trial) to data file
+                    thisExp.addData('target_onset2', current_pokemon_onset)
                     target_pokemon_onset = current_pokemon_onset # If pokemon is target pokemon, save first onset time
 
             if current_pokemon.status == STARTED and tThisFlipGlobal > current_pokemon_onset + RSVP_RATE: # erase the current pokemon after rsvp rate elapses
@@ -469,11 +563,6 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
                 kb_allKeys.append(key)
                 if key.name == 'escape':
                     end_task()
-                if key.name == RESPONSE_KEY:
-                    if not kb.keys:
-                        thisExp.timestampOnFlip(win, 'kb.pressed') # based on the global clock
-                        kb.keys = key.name
-                        kb.rt = kb_allKeys[0].rt # based on start of trial (when kb is initialized)
 
         # End the trial after the total duration
         if tThisFlip >= TRIAL_DURATION:
@@ -509,14 +598,19 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
         if not response_keys: # no key pressed
             accuracy = 0
             trial_outcome = "miss"
-        elif first_press and first_press.rt >= target_onset: # key pressed after target was displayed; ANDREW: max duration after target?
+        elif first_press and first_press.rt >= target_onset: # key pressed after target was displayed
+            rt = first_press.rt - target_onset
             print("target shown", "RT:", first_press.rt, "target onset time:", target_onset)
-            accuracy = 1
-            trial_outcome = "hit"
-        elif first_press and first_press.rt < target_onset: # key pressed before target displayed
+            if rt < RESPONSE_WINDOW: # pressed within response window -> hit
+                accuracy = 1
+                trial_outcome = "hit"
+            else: # pressed after response window -> FA
+                accuracy = 0
+                trial_outcome = "false alarm"
+        elif first_press and first_press.rt < target_onset: # key pressed before target displayed -> FA
             print("target shown", "RT:", first_press.rt, "target onset time:", target_onset)
             accuracy = 0
-            trial_outcome = "early press"
+            trial_outcome = "false alarm"
     else: # case 2: target not shown in trial
         if not response_keys: # no key pressed and target not displayed
             accuracy = 1
@@ -538,114 +632,85 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
 
     return accuracy
 
-def run_feature_cond():
+def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids, trial_rsvps, target_pokemon, target_color):
+    
+    # Save attention condition and run start time to data file
+    thisExp.addData('attention_cond', attention_cond)
+    thisExp.addData('run.started', globalClock.getTime(format='float'))
+    
+    # Reset run accuracy
+    run_accuracy = 0
+    
+    # Show instructions for the attention condition
+    if attention_cond == "FIX":
+        fix_instructions_text.draw()
+    if attention_cond == "COV":
+        cov_instructions_text.draw()
+    win.flip()
+    
+    # Move on from instructions when escape or space is pressed
+    keys = event.waitKeys(keyList=['space', 'escape'])
+    if 'escape' in keys:
+        end_task()
+    thisExp.addData('instructions.stopped', globalClock.getTime(format='float')) 
+    
+    # Extract visuals for this run
+    trial_dicts = create_trial_dicts(run_idx, all_grids, trial_rsvps) # create trial dicts for this run
+    blank_block_rsvps = blanks_rsvps[run_idx] # 2 RSVP lists for the blank blocks in this run
+    
+    # Run blank block before trials
+    thisExp.addData('blank_block.started', globalClock.getTime(format='float'))
+    run_blank_block(blank_block_rsvps[0], run_idx+1, 1)
+    thisExp.addData('blank_block.stopped', globalClock.getTime(format='float'))
+
+#    # Run all trials using trial dictionaries, updating accuracy
+#    for trial_dict in trial_dicts:
+#        run_accuracy += run_trial(trial_dict, attention_cond, target_pokemon, target_color)
+    
+    # Run blank block after trials
+    thisExp.addData('blank_block.started', globalClock.getTime(format='float'))
+    run_blank_block(blank_block_rsvps[1], run_idx+1, 2)
+    thisExp.addData('blank_block.stopped', globalClock.getTime(format='float'))
+    
+    # Show feedback statement at the end of the run based on attention condition
+    if attention_cond == 'FIX':
+        end_text.text = (f"Great job finding {target_pokemon}!")
+        pokemon_dict[target_pokemon].pos = (0, -5) 
+        pokemon_dict[target_pokemon].size = (5,5)
+        pokemon_dict[target_pokemon].draw()
+    elif attention_cond == 'COV':
+        end_text.text = (f"Great job feeding the Pokémon {target_color} circles!")
+        target_pstim = visual.Circle(win, name = target_color, pos = (0,-5), radius = 5/2 , units = 'deg', anchor = 'center', fillColor=target_color, lineColor=target_color)
+        target_pstim.draw()
+    end_text.draw()
+    win.flip()
+    
+    # Reset size and position of the target pokemon
+    pokemon_dict[target_pokemon].size = POKEMON_SIZE
+    pokemon_dict[target_pokemon].pos = (0,0)
+    
+    keys = event.waitKeys(keyList=['space', 'escape'])
+    if 'escape' in keys:
+        end_task()
+ 
+def run_feature_cond(condition):
     """
     Runs all of the blocks in a single feature condition. 
     
     Args:
-        feature_condition (dict): Dictionary of all parameters for the feature condition defined at start of script.
-        target_pokemon (str): Name of target pokémon.
-        target_color (str): Name of color.
+        feature_condition (str): color, motion, or color_motion
     """
-
-    runs_per_attncond = NUM_RUNS_COLOR//len(ATTENTION_CONDS)
-
+    
     # Step 1: Generate the RSVP sequences and peripheral stimulus grids for all runs in the feature condition
-    blanks_rsvps = generate_blank_rsvps(NUM_RUNS_COLOR)
-    trial_rsvps = generate_trial_rsvps(NUM_RUNS_COLOR)
-    all_grids = assign_grids(NUM_RUNS_COLOR)
+    blanks_rsvps = generate_blank_rsvps()
+    all_grids = assign_grids()
+    trial_rsvps = generate_trial_rsvps()
 
-    # Step 2: Perform each run
-    for run in range(1, NUM_RUNS_COLOR + 1):
-        trial_dicts = create_trial_dicts(run-1, all_grids, trial_rsvps) # trial dicts for this run
-        run_accuracy = 0
-        blank_block_rsvps = blanks_rsvps[run-1] # 2 RSVP lists for the blank blocks in this run
-        
-        # Show instructions if this is the first run in the attention condition; kind of hacky only works with 2 attn conds
-        if run <= runs_per_attncond:
-            attention_cond = ATTENTION_CONDS[0]
-            if run == 1:
-                instructions_text.text = (
-                "There's a Pokémon Party happening right now, and the Pokémon are playing hide and seek!\n\n"
-                f"The Pokémon are having trouble finding {target_pokemon}! Can you help them?\n\n"
-                f"Press the button as fast as you can every time you see {target_pokemon}.\n\n\n"
-                "Ready to start playing?")
-            
-        elif run > runs_per_attncond:
-            attention_cond = ATTENTION_CONDS[1]
-            if run == 1+runs_per_attncond:
-                instructions_text.text = (
-                "There's a Pokémon Party happening right now, and the Pokémon are getting hungry!\n\n"
-                f"The Pokémon like to eat {target_color} circles! Can you help feed them?\n\n"
-                f"Press the button as fast as you can every time you see a {target_color} circle.\n\n\n"
-                "Ready to start playing?")
-        instructions_text.draw()
-        win.flip()
-        
-        # Save attention condition and instructions start time to data file
-        thisExp.addData('attention_cond', attention_cond)
-        thisExp.addData('instructions.started', globalClock.getTime(format='float'))
-        
-        # Wait for space or esc 
-        keys = event.waitKeys(keyList=['space', 'escape'])
-        if 'escape' in keys:
-            end_task()
-        
-        # Save the instructions stop time to the data file and move to the next row
-        thisExp.addData('instructions.stopped', globalClock.getTime(format='float')) 
-        
-        # Blank block at start of run; display an RSVP of distractors
-        for pokemon in blank_block_rsvps[0]:
-            pokemon_dict[pokemon].pos = (0,0)
-            pokemon_dict[pokemon].draw()
-            win.flip()
-            core.wait(RSVP_RATE)
-            keys = kb.getKeys(keyList=['escape'], waitRelease=False)
-            if 'escape' in keys:
-                end_task()
-        
-        thisExp.addData('blank_block.stopped', globalClock.getTime(format='float'))
-        
-        # Feed trial dictionary and attention condition to the run trial function
-        thisExp.nextEntry() 
-        for trial in trial_dicts:
-            run_accuracy += run_trial(trial, attention_cond, target_pokemon, target_color)
-        
-        # Blank block at end of run; display an RSVP of distractors 
-        for pokemon in blank_block_rsvps[1]:
-            pokemon_dict[pokemon].pos = (0,0)
-            pokemon_dict[pokemon].draw()
-            win.flip()
-            core.wait(RSVP_RATE)
-            keys = kb.getKeys(keyList=['escape'], waitRelease=False)
-            if 'escape' in keys:
-                end_task()
-            
-        thisExp.addData('blank_block.stopped', globalClock.getTime(format='float'))
-        
-        # Step 3: Calculate hit rate and show feedback statement at the end of the run based on attention condition
-        hit_rate = run_accuracy / (NUM_RUNS_COLOR*NUM_TRIALS) ## ANDREW: different feedback after the run depending on hit rate?
-        if attention_cond == 'FIX':
-            end_text.text = (f"Great job finding {target_pokemon}!")
-            pokemon_dict[target_pokemon].pos = (0, -5) 
-            pokemon_dict[target_pokemon].size = (5,5)
-            pokemon_dict[target_pokemon].draw()
-        elif attention_cond == 'COV':
-            end_text.text = (f"Great job feeding the Pokémon {target_color} circles!")
-            # pstim_dict[target_color].pos = (0,-5)
-            # pokemon_dict[target_pokemon].size = (5,5)
-            # pstim_dict[target_color].draw()
-        end_text.draw()
-        win.flip()
-        
-        # Reset size and position of the target pokemon
-        pokemon_dict[target_pokemon].size = POKEMON_SIZE
-        pokemon_dict[target_pokemon].pos = (0,0)
-        
-        keys = event.waitKeys(keyList=['space', 'escape'])
-        if 'escape' in keys:
-            end_task()
-
+    # Step 2: Perform 3 Color-FIX and 3 Color-COV runs
+    for attention_cond in ATTENTION_CONDS:
+        for run in range(NUM_RUNS//len(ATTENTION_CONDS)):
+            perform_one_run(condition, run, attention_cond, blanks_rsvps, all_grids, trial_rsvps, target_pokemon, target_color)
+    
 ###### WELCOME SCREEN #######################################################################################################
 
 # Clear the window
@@ -695,8 +760,8 @@ if 'escape' in keys:
 trialClock = core.Clock()
 win.flip() 
 
-# Run each feature condition
-run_feature_cond()
+# Run color feature condition
+run_feature_cond('color')
 
 ###### END EXPERIMENT #######################################################################################################
 
