@@ -54,7 +54,7 @@ RESPONSE_KEY = 'space'
 
 ###### EXPERIMENT SETUP #######################################################################################################
 
-exp_name = 'SimSeq-DV'
+exp_name = 'SimSeq'
 exp_info = {'Participant ID': '9999', 
             'Session': '001',
             'Pokemon': 'Pikachu',
@@ -69,11 +69,11 @@ target_pokemon = exp_info['Pokemon'].strip().capitalize() # ensures first letter
 target_color = exp_info['Color']
 
 # Establish data output directory
-time_str = time.strftime("_%m_%d_%Y_%H_%M", time.localtime())
+time_str = time.strftime("%m_%d_%Y_%H:%M", time.localtime())
 root_dir = os.path.dirname(os.path.abspath(__file__))
 data_folder = os.path.join(root_dir, 'data', f"{exp_name}_{exp_info['Participant ID']}_Session{exp_info['Session']}_{time_str}")
 os.makedirs(data_folder, exist_ok=True)
-filename = os.path.join(data_folder, f"{exp_name}_{exp_info['Participant ID']}_Session{exp_info['Session']}")
+filename = os.path.join(data_folder, f"{exp_name}_Participant{exp_info['Participant ID']}_Session{exp_info['Session']}")
 blankblock_filename = os.path.join(data_folder, f"blank_blocks_{exp_info['Participant ID']}_Session{exp_info['Session']}")
 
 # Window setup (will need to be adjusted to match the MRI monitor)
@@ -348,7 +348,7 @@ def create_trial_dicts(run_idx, all_grids, all_trial_rsvps):
             }) 
     return trial_dicts
     
-def run_blank_block(rsvp, run_num, blank_num): 
+def run_blank_block(rsvp, run_num, blank_num, last_target_onset): 
     """ Function to run a single blank block. """
     
     # Add data to data file
@@ -356,7 +356,6 @@ def run_blank_block(rsvp, run_num, blank_num):
     blankExp.addData('rsvp_stim', rsvp)
     
     # Reset tracking variables
-    last_target_onset = None # will store the most recent target onset
     total_hits = 0
     
     for current_pokemon in rsvp:
@@ -423,9 +422,9 @@ def run_blank_block(rsvp, run_num, blank_num):
     blankExp.addData('blank_block.stopped', globalClock.getTime(format='float'))
     blankExp.nextEntry()
     
-    return total_hits
+    return last_target_onset
     
-def run_trial(trial_dict, attention_cond, target_pokemon, target_color):    
+def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_target_onset):    
     """
     Function to run a single trial.
 
@@ -438,17 +437,15 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
 
     # Reset all variables
     trialClock.reset()
+    kb.clearEvents()
+    continueRoutine = True
     frameN = -1
     rsvp_index = 0
     pstim_index = 0
-    target_pstim_onset = None
-    target_pokemon_onset = None
-    continueRoutine = True
-    kb.clearEvents()
-    kb.rt = []
-    kb.keys = []
-    kb_allKeys = []
+    hits = 0
     pstim_to_draw = []
+    press_times = []
+    rts = []
     
     # Get trial parameters from the trial dictionary
     vf = trial_dict['visual_field']
@@ -493,20 +490,27 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
                 comp.status = NOT_STARTED
                 
     # Save trial variables to the data file
+    thisExp.addData('attention_cond', attention_cond)
     thisExp.addData('pres_cond', trial_dict['presentation_cond'])
     thisExp.addData('block', trial_dict['block_num'] )
     thisExp.addData('trial', trial_dict['trial_num'])
     thisExp.addData('visual_field', vf[0])
     thisExp.addData('peripheral_grid', pstim_grid)
     thisExp.addData('rsvp_stim', rsvp_sequence)
-
+    
+    # Check whether target is present this trial
+    if attention_cond == 'FIX':
+        target_shown = target_pokemon in rsvp_sequence # T or F
+    elif attention_cond == 'COV':
+        target_shown = target_color in pstim_grid # T or F
+        
     # Start the trial loop
     while continueRoutine:
         t = trialClock.getTime() # t = 0 is start of the trial
         tThisFlip = win.getFutureFlipTime(clock=trialClock) # when the next screen flip will be, relative to the start of the trial
         tThisFlipGlobal = win.getFutureFlipTime(clock=globalClock) # when the next screen flip will be, relative to the start of the experiment
         frameN += 1
-
+        
         if rsvp_index < len(rsvp_sequence): # make sure we don't go past the last pokemon in the rsvp
             current_pokemon = pokemon_dict[rsvp_sequence[rsvp_index]]
             is_final_pokemon = rsvp_index == len(rsvp_sequence) - 1 # check if this is the last pokemon in the RSVP
@@ -515,11 +519,11 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
             if current_pokemon.status == NOT_STARTED and tThisFlip >= 0: # Start RSVP stream at the start of the trial
                 draw_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
                 current_pokemon_onset = current_pokemon.tStartRefresh # Record time when the pokemon was first presented
-                if current_pokemon.name == target_pokemon and target_pokemon_onset == None:
-                    thisExp.addData(f'{current_pokemon.name}.started', current_pokemon.tStart) # Add time when target pokemon appears (in reference to start of trial) to data file
-                    thisExp.addData('target_onset2', current_pokemon_onset)
-                    target_pokemon_onset = current_pokemon_onset # If pokemon is target pokemon, save first onset time
-
+                if attention_cond == "FIX":
+                    if current_pokemon.name == target_pokemon:
+                        thisExp.addData(f'target_pokemon.started', current_pokemon.tStart) # Add time when target pokemon appears (in reference to start of trial) to data file
+                        last_target_onset = current_pokemon_onset # If pokemon is target pokemon, save first onset time
+                        
             if current_pokemon.status == STARTED and tThisFlipGlobal > current_pokemon_onset + RSVP_RATE: # erase the current pokemon after rsvp rate elapses
                 erase_comp(current_pokemon, t, tThisFlip, tThisFlipGlobal, frameN)
                 if not is_final_pokemon:
@@ -531,9 +535,10 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
                 for pstim in pstim_to_draw:
                     if pstim.status == NOT_STARTED and tThisFlip >= pstim_start_time:
                         draw_comp(pstim, t, tThisFlip, tThisFlipGlobal, frameN)
-                        if pstim.color == target_color and target_pstim_onset == None:
-                            target_pstim_onset = pstim.tStartRefresh # If target color in grid, save onset time (from global clock!)
-                            thisExp.addData(f'{target_color}.started', comp.tStart) # Save target onset to data file (reference to start of trial)
+                        if attention_cond == "COV":
+                            if pstim.color == target_color:
+                                last_target_onset = pstim.tStartRefresh # If target color in grid, save onset time (from global clock!)
+                                thisExp.addData(f'target_color.started', comp.tStart) # Save target onset to data file (reference to start of trial)
                     if pstim.status == STARTED and tThisFlipGlobal > pstim.tStartRefresh + PERIPH_STIM_DURATION: # Erase grid after pstim duration
                         erase_comp(pstim, t, tThisFlip, tThisFlipGlobal, frameN)
             
@@ -544,26 +549,26 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
                     scheduled_onset = pstim_onsets[pstim_index]
                     if current_pstim.status == NOT_STARTED and tThisFlip >= scheduled_onset:
                         draw_comp(current_pstim, t, tThisFlip, tThisFlipGlobal, frameN)
-                        if current_pstim.color == target_color and target_pstim_onset == None:
-                            target_pstim_onset = current_pstim.tStartRefresh # If target color shown, save onset time
-                            thisExp.addData(f'{target_color}.started', comp.tStart) # Save target onset to data file (reference to start of trial)
-
+                        if attention_cond == "COV":
+                            if current_pstim.color == target_color:
+                                last_target_onset = current_pstim.tStartRefresh # If target color in grid, save onset time (from global clock!)
+                                thisExp.addData(f'{target_color}.started', comp.tStart) # Save target onset to data file (reference to start of trial)
+                                
                     if current_pstim.status == STARTED and tThisFlipGlobal > current_pstim.tStartRefresh + PERIPH_STIM_DURATION:
                         erase_comp(current_pstim, t, tThisFlip, tThisFlipGlobal, frameN)
                         pstim_index += 1
-
+                        
         # Start checking for key presses at start of trial
         if kb.status == NOT_STARTED and tThisFlip >= 0:
             draw_comp(kb, t, tThisFlip, tThisFlipGlobal, frameN)
-
+            
         # Check keypresses once per frame
         elif kb.status == STARTED:
-            keys = kb.getKeys(keyList=[RESPONSE_KEY, 'escape'], waitRelease=False)
+            keys = kb.getKeys(keyList=[RESPONSE_KEY, 'escape'], waitRelease=False, clear = False)
             for key in keys:
-                kb_allKeys.append(key)
                 if key.name == 'escape':
                     end_task()
-
+                            
         # End the trial after the total duration
         if tThisFlip >= TRIAL_DURATION:
             continueRoutine = False 
@@ -577,69 +582,39 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color):
                     
         if continueRoutine:
             win.flip()  # refresh the screen
-
-    # Initialize trial outcome
-    trial_outcome = "undefined"
-    accuracy = None  # default to None
-
-    if attention_cond == 'FIX':
-        target_shown = target_pokemon in rsvp_sequence # T or F
-        target_onset = target_pokemon_onset
-
-    elif attention_cond == 'COV':
-        target_shown = target_color in pstim_grid # T or F
-        target_onset = target_pstim_onset
-
-    response_keys = [key for key in kb_allKeys if key.name == RESPONSE_KEY]
-    first_press = response_keys[0] if response_keys else None
-
-    # Calculate accuracy
-    if target_shown: # case 1: target shown in trial
-        if not response_keys: # no key pressed
-            accuracy = 0
-            trial_outcome = "miss"
-        elif first_press and first_press.rt >= target_onset: # key pressed after target was displayed
-            rt = first_press.rt - target_onset
-            print("target shown", "RT:", first_press.rt, "target onset time:", target_onset)
-            if rt < RESPONSE_WINDOW: # pressed within response window -> hit
-                accuracy = 1
-                trial_outcome = "hit"
-            else: # pressed after response window -> FA
-                accuracy = 0
-                trial_outcome = "false alarm"
-        elif first_press and first_press.rt < target_onset: # key pressed before target displayed -> FA
-            print("target shown", "RT:", first_press.rt, "target onset time:", target_onset)
-            accuracy = 0
-            trial_outcome = "false alarm"
-    else: # case 2: target not shown in trial
-        if not response_keys: # no key pressed and target not displayed
-            accuracy = 1
-            trial_outcome = "correct rejection"
-        else:
-            accuracy = 0 # key pressed when no target displayed
-            trial_outcome = "false alarm"
+            
+    for key in keys:
+        if key.name == RESPONSE_KEY:
+            press_time = key.rt
+            press_times.append(press_time)
+            if last_target_onset is not None:
+                rt = press_time - last_target_onset
+                rts.append(rt)
+                if rt <= RESPONSE_WINDOW:
+                    hits += 1
 
     # Save accuracy and reaction time to file
     thisExp.addData('target_shown', target_shown)
-    thisExp.addData('accuracy', accuracy)
-    thisExp.addData('rt', kb.rt)
-    thisExp.addData('outcome', trial_outcome)
+    thisExp.addData('press_times', press_times)
+    thisExp.addData('rts', rts)
+    thisExp.addData('hits', hits)
 
     # Print trial data
-    print(f"Block {trial_dict['block_num']}, Trial {trial_dict['trial_num']}, Accuracy {accuracy}: {trial_outcome}")
+    print(f"Trial block: {trial_dict['block_num']}, Trial: {trial_dict['trial_num']}, Target shown: {target_shown}, Keypresses: {len(press_times)}")
 
     thisExp.nextEntry()
 
-    return accuracy
+    return last_target_onset
 
 def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids, trial_rsvps, target_pokemon, target_color):
+
+    thisExp.addData('run', run_idx+1)
+    
+    # Reset last target onset
+    last_target_onset = None
     
     # Save attention condition and run start time to data file
-    thisExp.addData('attention_cond', attention_cond)
     thisExp.addData('run.started', globalClock.getTime(format='float'))
-    
-    # Reset run accuracy
-    run_accuracy = 0
     
     # Show instructions for the attention condition
     if attention_cond == "FIX":
@@ -660,16 +635,16 @@ def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids,
     
     # Run blank block before trials
     thisExp.addData('blank_block.started', globalClock.getTime(format='float'))
-    run_blank_block(blank_block_rsvps[0], run_idx+1, 1)
+    last_target_onset = run_blank_block(blank_block_rsvps[0], run_idx+1, 1, last_target_onset)
     thisExp.addData('blank_block.stopped', globalClock.getTime(format='float'))
 
-#    # Run all trials using trial dictionaries, updating accuracy
-#    for trial_dict in trial_dicts:
-#        run_accuracy += run_trial(trial_dict, attention_cond, target_pokemon, target_color)
+    # Run all trials using trial dictionaries, updating accuracy
+    for trial_dict in trial_dicts:
+        last_target_onset = run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_target_onset)
     
     # Run blank block after trials
     thisExp.addData('blank_block.started', globalClock.getTime(format='float'))
-    run_blank_block(blank_block_rsvps[1], run_idx+1, 2)
+    last_target_onset = run_blank_block(blank_block_rsvps[1], run_idx+1, 2, last_target_onset)
     thisExp.addData('blank_block.stopped', globalClock.getTime(format='float'))
     
     # Show feedback statement at the end of the run based on attention condition
