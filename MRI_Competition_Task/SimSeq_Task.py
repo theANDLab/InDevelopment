@@ -83,6 +83,9 @@ win = visual.Window(fullscr=True,color=[0,0,0], screen=0,
                     blendMode='avg', useFBO=False,
                     colorSpace='rgb', units='deg')
 
+# Get monitor's refresh rate
+exp_info['frameRate'] = win.getActualFrameRate()
+
 # Create an experiment handler to manage the data file
 thisExp = data.ExperimentHandler(name=exp_name, version='', extraInfo=exp_info,
                                 runtimeInfo=None, originPath=os.path.abspath(__file__),
@@ -367,15 +370,14 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
         # Set pokemon location
         pokemon_dict[current_pokemon].pos = (0,0)
 
-        # Get a time stamp of when the while loop started
-        start_time = globalClock.getTime(format='float')
-        blankExp.addData('loop_start', start_time)
+        # Reset onset variables
         pokemon_onset = None
+        timer = core.CountdownTimer(RSVP_RATE)
         
         # while loop will draw pokemon and check for keypresses for RSVP_RATE duration
-        while (globalClock.getTime() - start_time) < RSVP_RATE:
+        while timer.getTime() > 0:
             
-            # Draw pokemon every frame
+            # Add pokemon to drawing queue
             pokemon_dict[current_pokemon].draw()
             
             # Capture pokemon onset once during first window flip
@@ -386,7 +388,7 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
                     t = globalClock.getTime(format='float')
                     pokemon_onset = t
                     blankExp.addData('pokemon', current_pokemon)
-                    blankExp.addData('onset', t)
+                    blankExp.addData('onset', t) # onset will be on window flip to capture exactly when pokemon was first displayed
                     if is_target:
                         last_target_onset = t
                         blankExp.addData('target_onset', t)
@@ -401,9 +403,9 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
                 if key.name == 'escape':
                     end_task()
                     
-                if key.name == RESPONSE_KEY:
+                elif key.name == RESPONSE_KEY:
                     press_time = key.rt # relative to globalClock, so NOT rt from target onset
-                    blankExp.addData('pokemon', pokemon)
+                    blankExp.addData('pokemon', current_pokemon)
                     blankExp.addData('press_time', press_time)
                         
                     # Score against the most recent target onset
@@ -415,7 +417,13 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
                             hit = 1
                             total_hits += hit
                             blankExp.addData('hit', hit)
-                    # next row in data file after a keypress to ensure we capture all of them
+                            
+        def offset_on_flip():
+            t = globalClock.getTime(format='float')
+            blankExp.addData('offset', t)
+        
+        win.callOnFlip(offset_on_flip)
+        win.flip(clearBuffer = True)
         blankExp.nextEntry()
     
     # Save block data
