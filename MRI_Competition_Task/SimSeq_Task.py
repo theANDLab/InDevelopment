@@ -17,7 +17,7 @@ import sys
 import time
 logging.console.setLevel(logging.ERROR)
 
-###### EXPERIMENT PARAMETERS #######################################################################################################
+###### PARAMETERS ######################################################################################################################
 
 # Initialize the global clock and keyboard
 globalClock = core.Clock()
@@ -33,7 +33,7 @@ NUM_TRIALS = 3 # per block
 BLOCK_DESIGN = [('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM'),('RVF','SEQ'),('LVF','SIM'),
                 ('RVF','SIM'),('LVF','SEQ'),('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM')]
 
-# Size
+# Stim parameters
 PERIPHERAL_STIM_SIZE = 1.75 #DVA; size of each peripheral stimulus (circle)
 POKEMON_SIZE = [1.5, 1.5] # DVA, size of the pokemon during RSVP
 POKEMON_POS = (0,0) # location of rsvp pokemon
@@ -41,10 +41,7 @@ NUM_PSTIMS = 4 # number of peripheral stimuli
 GRID_SIZE = 4 #DVA; height and width of the peripheral stimulus grid
 ECCENTRICITY = 7 #DVA from the center of the grid to the center of each peripheral stimulus
 PERIPHERAL_STIM_COLORS = ['red', 'blue', 'green', 'yellow', 'magenta', 'cyan'] 
-
-# Motion Condition
 FREQUENCY =  2.0 # Hz
-AMPLITUDE = 2.0 # movement amplitude in degrees
 ANGLES = [0, 30, 60, 90, 120, 150]
 
 # Timing
@@ -59,7 +56,7 @@ RESPONSE_WINDOW = 1.5 # sec; responses after this will be coded as FAs
 # Response key
 RESPONSE_KEY = 'space'
 
-###### EXPERIMENT SETUP #######################################################################################################
+###### SETUP ###########################################################################################################################
 
 exp_name = 'SimSeq'
 exp_info = {'Participant ID': '9999', 
@@ -100,6 +97,10 @@ column_order = ['instructions.start', 'instructions.end', 'blank_block.start', '
 
 for col in column_order:
     thisExp.addData(col, '')
+    
+# Mark the experiment as started
+exp_info['expDate'] = data.getDateStr(format = '%Y-%m-%d %Hh%M.%S.%f %z', fractionalSecondDigits=6)
+thisExp.status = STARTED
 
 # Window setup (will need to be adjusted to match the MRI monitor)
 win = visual.Window(fullscr=True,color=[0,0,0], screen=0, 
@@ -111,36 +112,16 @@ win = visual.Window(fullscr=True,color=[0,0,0], screen=0,
 # Get monitor's refresh rate
 exp_info['frameRate'] = win.getActualFrameRate()
 
-###### INITIALIZE VISUAL COMPONENTS #######################################################################################################
-
 # Load Pokémon images from folder
 pokemon_dir = os.path.join(root_dir, 'pokemon_lightgray')
 pokemon_names = ["Bulbasaur", "Pikachu", "Squirtle", "Charmander", "Magikarp", "Raticate", "Pidgey",
     "Metapod", "Jigglypuff", "Butterfree", "Psyduck", "Caterpie", "Krabby",
     "Haunter", "Vulpix", "Eevee", "Sandshrew", "Wartortle", "Charmeleon", "Clefairy",
     "Ponyta", "Mankey"]
-    
 pokemon_dict = {name: visual.ImageStim(win, name=name, image=os.path.join(pokemon_dir, f"{i+1:03}.png"))
-    for i, name in enumerate(pokemon_names)} # dictionary of the pokemon where the key is their name and the values are the ImageStim
+    for i, name in enumerate(pokemon_names)} # dictionary of the pokemon where the key is their name and the values are the ImageStim object
 
-# Text components for welcome, instructions, and end screens
-welcome_text = visual.TextStim(win, pos=(0,0), height= 1.5, wrapWidth=27, text=("Welcome to the Pokémon Party game!"))
-fix_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
-        "There's a Pokémon Party happening right now, and the Pokémon are playing hide and seek!\n\n"
-        f"The Pokémon are having trouble finding {target_pokemon}! Can you help them?\n\n"
-        f"Press the button as fast as you can every time you see {target_pokemon}.\n\n\n"
-        "Ready to start playing?"
-    ))
-cov_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
-        "There's a Pokémon Party happening right now, and the Pokémon are getting hungry!\n\n"
-        f"The Pokémon like to eat {target_color} circles! Can you help feed them?\n\n"
-        f"Press the button as fast as you can every time you see a {target_color} circle.\n\n\n"
-        "Ready to start playing?"
-    ))
-end_text = visual.TextStim(win, wrapWidth=27, text=())
-thanks_text = visual.TextStim(win, wrapWidth=30, text=("Thanks for coming to the Pokémon Party!"))
-
-# Calculate the coordinates of the center of the grid based on the given parameters
+# Calculate the coordinates of the center of the peripheral grid based on the inputted parameters
 cent2cent_spacing = GRID_SIZE - PERIPHERAL_STIM_SIZE # 2.25DVA; distance from center to center of peripheral stimuli
 offset = cent2cent_spacing / 2 # 1.125DVA; how much to move in x and y from the center of the grid to the center of each peripheral stimulus
 angle_rad = np.deg2rad(45) # polar angle from x axis to the center of the grid in radians
@@ -157,7 +138,7 @@ lvf_topright = [-gridcent_x + offset, gridcent_y + offset]  # Top right peripher
 lvf_botleft = [-gridcent_x - offset, gridcent_y - offset]  # Bottom left peripheral stimulus in LVF
 lvf_botright = [-gridcent_x + offset, gridcent_y - offset]  # Bottom right peripheral stimulus in LVF
 
-###### FUNCTIONS #######################################################################################################
+###### FUNCTIONS #######################################################################################################################
 
 def end_task():
     """ Saves data and closes the window."""
@@ -608,14 +589,34 @@ def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids,
     # Reset last target onset
     last_target_onset = None
     
-    # Save instructions start time
+    # Show instructions and target for the attention condition
     thisExp.addData('instructions.start', globalClock.getTime(format='float'))
     
-    # Show instructions for the attention condition
+    fix_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
+        "There's a Pokémon Party happening right now, and the Pokémon are playing hide and seek!\n\n"
+        f"The Pokémon are trying to find {target_pokemon}! Can you help them? {target_pokemon} will show up like this:\n\n\n"
+        f"\nPress the button as fast as you can every time you see {target_pokemon}.\n\n\n"
+        "Ready to start playing?"
+    ))
+    cov_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
+            "There's a Pokémon Party happening right now, and the Pokémon are hungry!\n\n\n\n\n\n"
+            f"The Pokémon like to eat {target_color} circles like these! Can you help feed them?\n\n\n"
+            f"Press the button as fast as you can every time you see a {target_color} circle.\n\n\n"
+            "Ready to start playing?"
+        ))
+    
     if attention_cond == "FIX":
         fix_instructions_text.draw()
+        pokemon_dict[target_pokemon].pos = (0, 0) 
+        pokemon_dict[target_pokemon].size = [1.5, 1.5]
+        pokemon_dict[target_pokemon].draw()
     if attention_cond == "COV":
         cov_instructions_text.draw()
+        instruc_pstim1 = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2 , units = 'deg', anchor = 'center', fillColor=target_color, lineColor=target_color)
+        instruc_pstim2 = visual.Circle(win, pos = lvf_botright, radius = PERIPHERAL_STIM_SIZE/2 , units = 'deg', anchor = 'center', fillColor=target_color, lineColor=target_color)
+        instruc_pstim1.draw()
+        instruc_pstim2.draw()
+        
     win.flip()
     
     # Move on from instructions when escape or space is pressed
@@ -646,6 +647,7 @@ def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids,
     thisExp.nextEntry()
     
     # Show feedback statement at the end of the run based on attention condition
+    end_text = visual.TextStim(win, wrapWidth=27, text=())
     if attention_cond == 'FIX':
         end_text.text = (f"Great job finding {target_pokemon}!")
         pokemon_dict[target_pokemon].pos = (0, -5) 
@@ -666,16 +668,13 @@ def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids,
     if 'escape' in keys:
         end_task()
   
-###### WELCOME SCREEN #######################################################################################################
+###### WELCOME SCREEN ##################################################################################################################
 
 # Clear the window
 win.flip() 
 
-# Mark the experiment as started
-exp_info['expStart'] = data.getDateStr(format = '%Y-%m-%d %Hh%M.%S.%f %z', fractionalSecondDigits=6)
-thisExp.status = STARTED
-
 # Draw welcome screen with Pokémon images
+welcome_text = visual.TextStim(win, pos=(0,0), height= 1.5, wrapWidth=27, text=("Welcome to the Pokémon Party game!"))
 welcome_pokemon = {
     "Bulbasaur":  ((10, -5), (5, 5)),
     "Pikachu":    ((5, -5),  (5, 5)),
@@ -707,9 +706,7 @@ keys = event.waitKeys(keyList=['space', 'escape'])
 if 'escape' in keys:
     end_task()
 
-###### PRACTICE BLOCK #######################################################################################################
-
-###### EXPERIMENT BLOCK #######################################################################################################
+###### EXPERIMENT BLOCK ################################################################################################################
 
 # Clear the window
 win.flip() 
@@ -731,11 +728,12 @@ perform_one_run(feat_cond, 0, 'COV', blanks_rsvps, all_grids, trial_rsvps, run_s
 perform_one_run(feat_cond, 1, 'COV', blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets, target_pokemon, target_color)
 perform_one_run(feat_cond, 2, 'COV', blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets, target_pokemon, target_color)
 
-###### END EXPERIMENT #######################################################################################################
+###### END EXPERIMENT ##################################################################################################################
 
-# Draw thank you text and run function to save data
+# Draw thank you text 
+thanks_text = visual.TextStim(win, wrapWidth=30, text=("Thanks for coming to the Pokémon Party!"))
 thanks_text.draw()
 win.flip()
+# Close experiment window and save data when space is pressed
 keys = event.waitKeys(keyList=['space'])
-
 end_task() 
