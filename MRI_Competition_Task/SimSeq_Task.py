@@ -7,6 +7,7 @@ from psychopy.hardware import keyboard
 import math
 from math import sin, cos, pi, radians
 import numpy as np
+from collections import deque
 import csv
 import itertools
 import random
@@ -24,7 +25,7 @@ kb = keyboard.Keyboard(clock = globalClock)
 
 # Experiment design
 ATTENTION_CONDS = ['FIX', 'COV']
-NUM_RUNS = 6 # number of runs per feature condition
+NUM_RUNS = 6 # number of runs per feature condition; if changed, also need to change code in 'EXPERIMENT BLOCK' section
 NUM_SIM_BLOCKS = 6 # per run
 NUM_SEQ_BLOCKS = 6 # per run
 NUM_BLANK_BLOCKS = 2 # per run
@@ -41,7 +42,7 @@ GRID_SIZE = 4 #DVA; height and width of the peripheral stimulus grid
 ECCENTRICITY = 7 #DVA from the center of the grid to the center of each peripheral stimulus
 PERIPHERAL_STIM_COLORS = ['red', 'blue', 'green', 'yellow', 'magenta', 'cyan'] 
 
-# Oscillation
+# Motion Condition
 FREQUENCY =  2.0 # Hz
 AMPLITUDE = 2.0 # movement amplitude in degrees
 ANGLES = [0, 30, 60, 90, 120, 150]
@@ -73,7 +74,6 @@ if dlg.OK == False:
 #target_pokemon = exp_info['Pokemon'].strip().capitalize() # ensures first letter is capitalized
 target_pokemon = 'Pikachu'
 target_color = 'red'
-feature_condition = exp_info['Condition']
 
 # Establish data output directory and output file column order
 time_str = time.strftime("%m_%d_%Y_%H:%M", time.localtime())
@@ -83,11 +83,23 @@ os.makedirs(data_folder, exist_ok=True)
 filename = os.path.join(data_folder, f"{exp_name}_Participant{exp_info['Participant ID']}_Session{exp_info['Session']}")
 blankblock_filename = os.path.join(data_folder, f"blank_blocks_{exp_info['Participant ID']}_Session{exp_info['Session']}")
 
+# Create an experiment handler to manage the data file and set the column order
+thisExp = data.ExperimentHandler(name=exp_name, version='', extraInfo=exp_info,
+                                runtimeInfo=None, originPath=os.path.abspath(__file__),
+                                savePickle=True, saveWideText=True,
+                                dataFileName=filename)
+
+blankExp = data.ExperimentHandler(name='blank_blocks',extraInfo=exp_info,
+                                savePickle=True, saveWideText=True,
+                                dataFileName=blankblock_filename)
+                                
 column_order = ['instructions.start', 'instructions.end', 'blank_block.start', 'blank_block.end', 'run', 'block', 'trial',
-    'attention_cond', 'presentation_cond', 'vf', 'rsvp', 'pstim', 'trial.start', 'pstim.offset', 'magenta.start',
-    'blue.start', 'green.start', 'yellow.start', 'cyan.start', 'red.start', 'target_shown', 'target.start', 'press_times', 'rts', 'hit',
-    'trial.end'
-]
+    'attention_cond', 'presentation_cond', 'vf', 'rsvp_seq', 'pstim_grid', 'trial.start', 'pstim.offset', 'magenta.start',
+    'blue.start', 'green.start', 'yellow.start', 'cyan.start', 'red.start', 'target_shown', 'target.start', 'press_times', 'rts', 
+    'keypresses', 'hit', 'trial.end']
+
+for col in column_order:
+    thisExp.addData(col, '')
 
 # Window setup (will need to be adjusted to match the MRI monitor)
 win = visual.Window(fullscr=True,color=[0,0,0], screen=0, 
@@ -98,20 +110,6 @@ win = visual.Window(fullscr=True,color=[0,0,0], screen=0,
 
 # Get monitor's refresh rate
 exp_info['frameRate'] = win.getActualFrameRate()
-
-# Create an experiment handler to manage the data file
-thisExp = data.ExperimentHandler(name=exp_name, version='', extraInfo=exp_info,
-                                runtimeInfo=None, originPath=os.path.abspath(__file__),
-                                savePickle=True, saveWideText=True,
-                                dataFileName=filename)
-
-blankExp = data.ExperimentHandler(name='blank_blocks',extraInfo=exp_info,
-                                savePickle=True, saveWideText=True,
-                                dataFileName=blankblock_filename)
-
-# Predetermined column order
-for col in column_order:
-    thisExp.addData(col, '')
 
 ###### INITIALIZE VISUAL COMPONENTS #######################################################################################################
 
@@ -163,6 +161,7 @@ lvf_botright = [-gridcent_x + offset, gridcent_y - offset]  # Bottom right perip
 
 def end_task():
     """ Saves data and closes the window."""
+    
     thisExp.nextEntry()
     thisExp.addData('experiment.end', globalClock.getTime(format='float'))
     
@@ -188,7 +187,7 @@ def generate_blank_rsvps():
     of each blank block's RSVP sequence for that run. (0-indexed)
     
     Example:
-        Calling generate_blank_rsvps()[2][0] will give the RSVP sequence (list of pokemon names) 
+        Calling generate_blank_rsvps()[2][0] will return the RSVP sequence (list of pokemon names) 
         of the first blank block in the third run. 
     """
     num_unique_runs = int(NUM_RUNS//len(ATTENTION_CONDS))
@@ -318,9 +317,27 @@ def assign_grids():
 
     return all_grids
     
-def create_trial_dicts(run_idx, all_grids, all_trial_rsvps):
+def generate_sim_onsets():
     """
-    Generates trial dictionaries for all of the trials in a run. Call once at the start of each run. 
+    Generates pseudo-random onset times for peripheral stimulus grid presentation in SIM trials. Onsets
+    will never be back to back (i.e., if the grid was presented during the last second of the previous trial,
+    it will not be presented during the first second of the current trial). 
+    """
+    
+    run_sim_onsets = {}
+    for run_idx in range(NUM_RUNS//2):
+        trial_onsets = []
+        for trial in range(NUM_SIM_BLOCKS*NUM_TRIALS):
+            if trial != 0 and trial_onsets[trial-1] == 3:
+                trial_onsets.append(random.choice([1, 2, 3]))
+            else:
+                trial_onsets.append(random.choice([0, 1, 2, 3]))
+        run_sim_onsets[run_idx] = trial_onsets
+    return run_sim_onsets
+    
+def create_trial_dicts(run_idx, all_grids, all_trial_rsvps, run_sim_onsets):
+    """
+    Returns a list of trial dictionaries for all of the trials in a run. Call at the start of each run. 
 
     Args:
         run_idx (int): index of the run (0-indexed)
@@ -333,21 +350,26 @@ def create_trial_dicts(run_idx, all_grids, all_trial_rsvps):
             'peripheral_grid', 'rsvp_seq'. 
             
     Example:
-        Calling create_trial_dicts(0, all_grids_all_trial_rsvps)[32] gives the trial dictionary of
+        Calling create_trial_dicts(0, all_grids_all_trial_rsvps, run_sim_onsets)[32] returns the trial dictionary of
         the 33rd trial in the first run. 
     """
+    sim_onsets = deque(run_sim_onsets[run_idx])
     trial_dicts = []
     for block_idx, (visual_field, present_cond) in enumerate(BLOCK_DESIGN):
         for trial_in_block in range(NUM_TRIALS):
             trial_idx = block_idx * NUM_TRIALS + trial_in_block
-            trial_dicts.append({
+            trial_dict = {
                 'block_num': block_idx + 1,
                 'trial_num': trial_idx + 1,
                 'visual_field': visual_field,
                 'presentation_cond': present_cond,
                 'peripheral_grid': all_grids[run_idx][trial_idx],
                 'rsvp_seq': all_trial_rsvps[run_idx][trial_idx]
-            }) 
+            }
+            if present_cond == 'SIM':
+                if sim_onsets:
+                    trial_dict['grid_onset'] = sim_onsets.popleft()
+            trial_dicts.append(trial_dict)
     return trial_dicts
     
 def run_blank_block(rsvp, run_num, blank_num, last_target_onset): 
@@ -355,7 +377,7 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
     
     # Add data to data file
     blankExp.addData('blank_block.start', globalClock.getTime(format='float'))
-    blankExp.addData('rsvp', rsvp)
+    blankExp.addData('rsvp_seq', rsvp)
     
     for current_pokemon in rsvp:
         blankExp.addData('run', run_num)
@@ -481,14 +503,14 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
     thisExp.addData('attention_cond', attention_cond)
     thisExp.addData('presentation_cond', trial_dict['presentation_cond'])
     thisExp.addData('vf', vf[0])
-    thisExp.addData('rsvp', rsvp_sequence)
-    thisExp.addData('pstim', pstim_grid)
+    thisExp.addData('rsvp_seq', rsvp_sequence)
+    thisExp.addData('pstim_grid', pstim_grid)
     thisExp.addData('trial.start', trial_start)
 
     # Set peripheral stim grid onsets
-    pstim_onsets = [0, 1, 2, 3] # seconds; each peripheral stimuli will be shown one at a time in SEQ condition
-    if is_sim_trial:
-        pstim_start_time = random.choice(pstim_onsets) # select random start time for grid in sim trials
+    pstim_onsets = [0, 1, 2, 3] # SEQ: one pstim per second
+    if is_sim_trial: # SIM: pseudorandom start time
+        pstim_start_time = trial_dict['grid_onset']
         thisExp.addData('pstim.offset', pstim_start_time)
     
     # Check whether target is present this trial
@@ -581,7 +603,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
 
     return last_target_onset
 
-def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids, trial_rsvps, target_pokemon, target_color):
+def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets, target_pokemon, target_color):
     
     # Reset last target onset
     last_target_onset = None
@@ -603,7 +625,7 @@ def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids,
     thisExp.addData('instructions.end', globalClock.getTime(format='float')) 
     
     # Extract visuals for this run
-    trial_dicts = create_trial_dicts(run_idx, all_grids, trial_rsvps) # create trial dicts for this run
+    trial_dicts = create_trial_dicts(run_idx, all_grids, trial_rsvps, run_sim_onsets) # create trial dicts for this run
     blank_block_rsvps = blanks_rsvps[run_idx] # 2 RSVP lists for the blank blocks in this run
     
     # Run blank block before trials
@@ -643,25 +665,7 @@ def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids,
     keys = event.waitKeys(keyList=['space', 'escape'])
     if 'escape' in keys:
         end_task()
- 
-def run_feature_cond(feat_cond):
-    """
-    Runs all of the blocks in a single feature condition. 
-    
-    Args:
-        feature_condition (str): color, motion, or color-motion
-    """
-    
-    # Step 1: Generate the RSVP sequences and peripheral stimulus grids for all runs in the feature condition
-    blanks_rsvps = generate_blank_rsvps()
-    all_grids = assign_grids()
-    trial_rsvps = generate_trial_rsvps()
-
-    # Step 2: Perform 3 Color-FIX and 3 Color-COV runs
-    for attention_cond in ATTENTION_CONDS:
-        for run in range(NUM_RUNS//len(ATTENTION_CONDS)):
-            perform_one_run(feat_cond, run, attention_cond, blanks_rsvps, all_grids, trial_rsvps, target_pokemon, target_color)
-                
+  
 ###### WELCOME SCREEN #######################################################################################################
 
 # Clear the window
@@ -710,8 +714,22 @@ if 'escape' in keys:
 # Clear the window
 win.flip() 
 
-# Run color feature condition
-run_feature_cond(feature_condition)
+# -----------Run feature condition
+feat_cond = exp_info['Condition']
+# Step 1: Generate the RSVP sequences and peripheral stimulus grids for all runs
+blanks_rsvps = generate_blank_rsvps()
+all_grids = assign_grids()
+trial_rsvps = generate_trial_rsvps()
+run_sim_onsets = generate_sim_onsets()
+
+# Step 2: Perform 3 Color-FIX and 3 Color-COV runs
+perform_one_run(feat_cond, 0, 'FIX' , blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets, target_pokemon, target_color)
+perform_one_run(feat_cond, 1, 'FIX', blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets, target_pokemon, target_color)
+perform_one_run(feat_cond, 2, 'FIX', blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets, target_pokemon, target_color)
+
+perform_one_run(feat_cond, 0, 'COV', blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets, target_pokemon, target_color)
+perform_one_run(feat_cond, 1, 'COV', blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets, target_pokemon, target_color)
+perform_one_run(feat_cond, 2, 'COV', blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets, target_pokemon, target_color)
 
 ###### END EXPERIMENT #######################################################################################################
 
