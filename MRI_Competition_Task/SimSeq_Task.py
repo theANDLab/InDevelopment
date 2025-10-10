@@ -91,9 +91,9 @@ blankExp = data.ExperimentHandler(name='blank_blocks',extraInfo=exp_info,
                                 dataFileName=blankblock_filename)
                                 
 column_order = ['instructions.start', 'instructions.end', 'blank_block.start', 'blank_block.end', 'run', 'block', 'trial',
-    'attention_cond', 'presentation_cond', 'vf', 'rsvp_seq', 'pstim_grid', 'trial.start', 'pstim.offset', 'magenta.start',
-    'blue.start', 'green.start', 'yellow.start', 'cyan.start', 'red.start', 'target_shown', 'target.start', 'press_times', 'rts', 
-    'keypresses', 'hit', 'trial.end']
+    'attention_cond', 'presentation_cond', 'vf', 'rsvp_seq', 'pstim_grid', 'trial.start', 'pstim.onset', 'magenta.onset',
+    'magenta.offset', 'blue.onset', 'blue.offset', 'green.onset', 'green.offset', 'yellow.onset', 'yellow.offset', 'cyan.onset', 
+    'cyan.offset', 'red.onset', 'red.offset', 'target_shown', 'target.onset', 'press_times', 'rts', 'keypresses', 'hit']
 
 for col in column_order:
     thisExp.addData(col, '')
@@ -387,10 +387,10 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
                     t = globalClock.getTime(format='float')
                     pokemon_onset = t
                     blankExp.addData('stim', current_pokemon)
-                    blankExp.addData('stim.start', t) # onset will be on window flip to capture exactly when pokemon was first displayed
+                    blankExp.addData('stim.onset', t) # onset will be on window flip to capture exactly when pokemon was first displayed
                     if is_target:
                         last_target_onset = t
-                        blankExp.addData('target.start', t)
+                        blankExp.addData('target.onset', t)
                 win.callOnFlip(on_flip)
             win.flip()
             
@@ -416,7 +416,7 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
                             
         def offset_on_flip():
             t = globalClock.getTime(format='float')
-            blankExp.addData('stim.end', t)
+            blankExp.addData('stim.offset', t)
         
         win.callOnFlip(offset_on_flip)
         win.flip(clearBuffer = True)
@@ -448,7 +448,6 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
     press_times = []
     rts = []
     target_onset_recorded = False
-    pstim_onset_recorded = False
     
     # Non-slip timing using global clock
     trial_start = globalClock.getTime()
@@ -477,6 +476,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
         pstim_dict = {color: pstim}
         pstim_to_draw.append(pstim) # add all the pstims to be drawn to a list
     pstim_onset_recorded_dict = {pstim.name: False for pstim in pstim_to_draw}
+    pstim_offset_recorded_dict = {pstim.name: False for pstim in pstim_to_draw}
         
     # Save trial variables to the data file
     thisExp.addData('block', trial_dict['block_num'] )
@@ -489,10 +489,10 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
     thisExp.addData('trial.start', trial_start)
 
     # Set peripheral stim grid onsets
-    pstim_onsets = [0, 1, 2, 3] # SEQ: one pstim per second
-    if is_sim_trial: # SIM: pseudorandom start time
-        pstim_start_time = trial_dict['grid_onset']
-        thisExp.addData('pstim.offset', pstim_start_time)
+    pstim_onsets = [0, 1, 2, 3] # seconds; each peripheral stimuli will be shown one at a time in SEQ condition
+    if is_sim_trial:
+        pstim_start_time = random.choice(pstim_onsets) # select random start time for grid in sim trials
+        thisExp.addData('pstim.onset', pstim_start_time)
     
     # Check whether target is present this trial
     if attention_cond == 'FIX':
@@ -536,20 +536,31 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
                 
         # record pstim onsets when window flips
         def on_flip(): 
-            nonlocal last_target_onset, target_onset_recorded, pstim_onset_recorded, pstim_onset_recorded_dict
-            if is_sim_trial and not pstim_onset_recorded:
-                if t >= trial_start + pstim_start_time:
+            flip_time = globalClock.getTime(format='float')
+            nonlocal last_target_onset, target_onset_recorded
+            
+            if is_sim_trial: 
+                if trial_start + pstim_start_time <= t < trial_start + pstim_start_time + PERIPH_STIM_DURATION:
                     for pstim in pstim_to_draw:
-                        thisExp.addData(f'{pstim.name}.start', globalClock.getTime(format='float'))
-                    pstim_onset_recorded = True
+                        if not pstim_onset_recorded_dict[pstim.name]:
+                            thisExp.addData(f'{pstim.name}.onset', flip_time)
+                            pstim_onset_recorded_dict[pstim.name] = True
+                elif t >= trial_start + pstim_start_time + PERIPH_STIM_DURATION:
+                    for pstim in pstim_to_draw:
+                        if not pstim_offset_recorded_dict[pstim.name]:
+                            thisExp.addData(f'{pstim.name}.offset', flip_time)
+                            pstim_offset_recorded_dict[pstim.name] = True
                 
             if is_seq_trial:
                 if not pstim_onset_recorded_dict[current_pstim.name]:
-                    thisExp.addData(f'{current_pstim.name}.start', globalClock.getTime(format='float'))
+                    thisExp.addData(f'{current_pstim.name}.onset', flip_time)
                     pstim_onset_recorded_dict[current_pstim.name] = True
+                elif t >= onset_time + PERIPH_STIM_DURATION:
+                    thisExp.addData(f'{current_pstim.name}.offset', flip_time)
+                    pstim_offset_recorded_dict[current_pstim.name] = True
                 
             if update_target_onset and not target_onset_recorded:
-                last_target_onset = globalClock.getTime(format='float')
+                last_target_onset = flip_time
                 target_onset_recorded = True
                 
         win.callOnFlip(on_flip)
@@ -567,15 +578,23 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
                     rts.append(rt)
                     if 0 < rt <= RESPONSE_WINDOW:
                         hit = 1
-
-    # Save accuracy and reaction time to file
+    
+    # Save offsets for pstims displayed in last 1 second of trial
+    if is_seq_trial:
+        thisExp.addData(f'{current_pstim.name}.offset', t)
+    if is_sim_trial and pstim_start_time == 3:
+        for pstim in pstim_to_draw:
+            thisExp.addData(f'{pstim.name}.offset', t)
+        
+    # Save trial outputs to data file
     thisExp.addData('target_shown', target_shown)
-    thisExp.addData('target.start', last_target_onset) if target_shown else thisExp.addData('target.start', '')
+    thisExp.addData('target.onset', last_target_onset) if target_shown else thisExp.addData('target.onset', '')
     thisExp.addData('press_times', press_times)
     thisExp.addData('rts', rts)
     thisExp.addData('hit', hit)
     thisExp.addData('keypresses', len(press_times))
     thisExp.addData('trial.end', t)
+        
 
     # Print trial data
     print(f"Trial block: {trial_dict['block_num']}, Trial: {trial_dict['trial_num']}, Target shown: {target_shown}, Keypresses: {len(press_times)}")
