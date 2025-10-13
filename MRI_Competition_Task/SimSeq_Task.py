@@ -69,7 +69,7 @@ if dlg.OK == False:
 
 # Get targets
 #target_pokemon = exp_info['Pokemon'].strip().capitalize() # ensures first letter is capitalized
-target_pokemon = 'Pikachu'
+target_pokemon = 'Eevee'
 target_color = 'red'
 
 # Establish data output directory and output file column order
@@ -77,8 +77,8 @@ time_str = time.strftime("%m_%d_%Y_%H:%M", time.localtime())
 root_dir = os.path.dirname(os.path.abspath(__file__))
 data_folder = os.path.join(root_dir, 'data', f"{exp_name}_{exp_info['Participant ID']}_Session{exp_info['Session']}_{time_str}")
 os.makedirs(data_folder, exist_ok=True)
-filename = os.path.join(data_folder, f"{exp_name}_Participant{exp_info['Participant ID']}_Session{exp_info['Session']}")
-blankblock_filename = os.path.join(data_folder, f"blank_blocks_{exp_info['Participant ID']}_Session{exp_info['Session']}")
+filename = os.path.join(data_folder, f"{exp_name}_{exp_info['Participant ID']}_Session{exp_info['Session']}")
+rsvp_filename = os.path.join(data_folder, f"rsvp_{exp_info['Participant ID']}_Session{exp_info['Session']}")
 
 # Create an experiment handler to manage the data file and set the column order
 thisExp = data.ExperimentHandler(name=exp_name, version='', extraInfo=exp_info,
@@ -86,17 +86,22 @@ thisExp = data.ExperimentHandler(name=exp_name, version='', extraInfo=exp_info,
                                 savePickle=True, saveWideText=True,
                                 dataFileName=filename)
 
-blankExp = data.ExperimentHandler(name='blank_blocks',extraInfo=exp_info,
+rsvpExp = data.ExperimentHandler(name='rsvp',extraInfo=exp_info,
                                 savePickle=True, saveWideText=True,
-                                dataFileName=blankblock_filename)
+                                dataFileName=rsvp_filename)
                                 
 column_order = ['instructions.start', 'instructions.end', 'blank_block.start', 'blank_block.end', 'run', 'block', 'trial',
     'attention_cond', 'presentation_cond', 'vf', 'rsvp_seq', 'pstim_grid', 'trial.start', 'pstim.onset', 'magenta.onset',
     'magenta.offset', 'blue.onset', 'blue.offset', 'green.onset', 'green.offset', 'yellow.onset', 'yellow.offset', 'cyan.onset', 
     'cyan.offset', 'red.onset', 'red.offset', 'target_shown', 'target.onset', 'press_times', 'rts', 'keypresses', 'hit']
+    
+rsvp_column_order = ['blank_block.start', 'rsvp_seq', 'run', 'block', 'trial']
 
 for col in column_order:
     thisExp.addData(col, '')
+    
+for col in rsvp_column_order:
+    rsvpExp.addData(col, '')
     
 # Mark the experiment as started
 exp_info['expDate'] = data.getDateStr(format = '%Y-%m-%d %Hh%M.%S.%f %z', fractionalSecondDigits=6)
@@ -357,12 +362,12 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
     """ Function to run a single blank block. """
     
     # Add data to data file
-    blankExp.addData('blank_block.start', globalClock.getTime(format='float'))
-    blankExp.addData('rsvp_seq', rsvp)
+    rsvpExp.addData('blank_block.start', globalClock.getTime(format='float'))
+    rsvpExp.addData('rsvp_seq', rsvp)
     
     for current_pokemon in rsvp:
-        blankExp.addData('run', run_num)
-        blankExp.addData('blank_block', blank_num)
+        rsvpExp.addData('run', run_num)
+        rsvpExp.addData('block', 'blank')
         hit = 0
         is_target = (current_pokemon == target_pokemon)
         
@@ -386,11 +391,11 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
                     nonlocal pokemon_onset, last_target_onset
                     t = globalClock.getTime(format='float')
                     pokemon_onset = t
-                    blankExp.addData('stim', current_pokemon)
-                    blankExp.addData('stim.onset', t) # onset will be on window flip to capture exactly when pokemon was first displayed
+                    rsvpExp.addData('stim', current_pokemon)
+                    rsvpExp.addData('stim.onset', t) # onset will be on window flip to capture exactly when pokemon was first displayed
                     if is_target:
                         last_target_onset = t
-                        blankExp.addData('target.onset', t)
+                        rsvpExp.addData('target.onset', t)
                 win.callOnFlip(on_flip)
             win.flip()
             
@@ -404,31 +409,31 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
                     
                 elif key.name == RESPONSE_KEY:
                     press_time = key.rt # relative to globalClock
-                    blankExp.addData('press_time', press_time)
+                    rsvpExp.addData('press_time', press_time)
                     # Score against the most recent target onset
                     if last_target_onset is not None:
                         # compute rt since last target onset
                         rt = press_time - last_target_onset
-                        blankExp.addData('rt', rt)
+                        rsvpExp.addData('rt', rt)
                         if rt <= RESPONSE_WINDOW:
                             hit = 1
-                            blankExp.addData('hit', hit)
+                            rsvpExp.addData('hit', hit)
                             
         def offset_on_flip():
             t = globalClock.getTime(format='float')
-            blankExp.addData('stim.offset', t)
-        
+            rsvpExp.addData('stim.offset', t)
+            
         win.callOnFlip(offset_on_flip)
         win.flip(clearBuffer = True)
-        blankExp.nextEntry()
+        rsvpExp.nextEntry()
     
     # Save block data
-    blankExp.addData('blank_block.end', globalClock.getTime(format='float'))
-    blankExp.nextEntry()
+    rsvpExp.addData('blank_block.end', globalClock.getTime(format='float'))
+    rsvpExp.nextEntry()
     
     return last_target_onset
 
-def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_target_onset):    
+def run_trial(run_idx, trial_dict, attention_cond, target_pokemon, target_color, last_target_onset):    
     """
     Function to run a single trial.
 
@@ -479,6 +484,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
     pstim_offset_recorded_dict = {pstim.name: False for pstim in pstim_to_draw}
         
     # Save trial variables to the data file
+    thisExp.addData('run', run_idx+1)
     thisExp.addData('block', trial_dict['block_num'] )
     thisExp.addData('trial', trial_dict['trial_num'])
     thisExp.addData('attention_cond', attention_cond)
@@ -503,14 +509,19 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
     # Start the trial loop
     while globalClock.getTime() < trial_end:
         update_target_onset = False
+        record_rsvp_onset = False
         t = globalClock.getTime()
         
         # RSVP stream presentation
         if rsvp_idx < len(rsvp_sequence) and t >= next_pokemon_onset:
+            record_rsvp_onset = True
             current_pokemon = pokemon_dict[rsvp_sequence[rsvp_idx]]
             rsvp_idx +=1
             next_pokemon_onset += RSVP_RATE
+            rsvpExp.nextEntry()
+            
             if attention_cond == "FIX" and current_pokemon.name == target_pokemon:
+                win.callOnFlip(lambda: rsvpExp.addData('target.onset', globalClock.getTime()))
                 update_target_onset = True
                 
         if current_pokemon is not None:
@@ -537,6 +548,7 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
         # record pstim onsets when window flips
         def on_flip(): 
             flip_time = globalClock.getTime(format='float')
+            
             nonlocal last_target_onset, target_onset_recorded
             
             if is_sim_trial: 
@@ -558,6 +570,15 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
                 elif t >= onset_time + PERIPH_STIM_DURATION:
                     thisExp.addData(f'{current_pstim.name}.offset', flip_time)
                     pstim_offset_recorded_dict[current_pstim.name] = True
+                    
+            if record_rsvp_onset:
+                rsvpExp.addData('run', run_idx+1)
+                rsvpExp.addData('block', trial_dict['presentation_cond'])
+                rsvpExp.addData('trial', trial_dict['trial_num'])
+                rsvpExp.addData('stim', current_pokemon.name)
+                rsvpExp.addData('stim.onset', flip_time)
+                
+            rsvpExp.addData('stim.offset', flip_time)
                 
             if update_target_onset and not target_onset_recorded:
                 last_target_onset = flip_time
@@ -572,12 +593,15 @@ def run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_tar
                 end_task()
             elif key.name == RESPONSE_KEY:
                 press_time = key.rt
+                rsvpExp.addData('press_time', press_time)
                 press_times.append(press_time)
                 if last_target_onset is not None:
                     rt = press_time - last_target_onset
+                    rsvpExp.addData('rt', rt)
                     rts.append(rt)
                     if 0 < rt <= RESPONSE_WINDOW:
                         hit = 1
+                        rsvpExp.addData('hit', hit)
     
     # Save offsets for pstims displayed in last 1 second of trial
     if is_seq_trial:
@@ -656,8 +680,7 @@ def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids,
 
     # Run all trials using trial dictionaries, updating accuracy
     for trial_dict in trial_dicts:
-        thisExp.addData('run', run_idx+1)
-        last_target_onset = run_trial(trial_dict, attention_cond, target_pokemon, target_color, last_target_onset)
+        last_target_onset = run_trial(run_idx, trial_dict, attention_cond, target_pokemon, target_color, last_target_onset)
     
     # Run blank block after trials
     thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
