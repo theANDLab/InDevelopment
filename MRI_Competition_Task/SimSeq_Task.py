@@ -362,9 +362,11 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
     """ Function to run a single blank block. """
     
     # Add data to data file
-    rsvpExp.addData('blank_block.start', globalClock.getTime(format='float'))
+    block_start = globalClock.getTime(format='float')
+    rsvpExp.addData('blank_block.start', block_start)
     rsvpExp.addData('rsvp_seq', rsvp)
     
+    next_pokemon_onset = block_start
     for current_pokemon in rsvp:
         rsvpExp.addData('run', run_num)
         rsvpExp.addData('block', 'blank')
@@ -376,10 +378,10 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
 
         # Reset onset variables
         pokemon_onset = None
-        timer = core.CountdownTimer(RSVP_RATE)
+        timer_end = next_pokemon_onset + RSVP_RATE
         
         # while loop will draw pokemon and check for keypresses for RSVP_RATE duration
-        while timer.getTime() > 0:
+        while globalClock.getTime() < timer_end:
             
             # Add pokemon to drawing queue
             pokemon_dict[current_pokemon].draw()
@@ -400,7 +402,7 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
             win.flip()
             
             # Get all keys pressed during that 250ms window
-            keys = kb.getKeys(keyList=[RESPONSE_KEY, 'escape'], waitRelease=False, clear = False)
+            keys = kb.getKeys(keyList=[RESPONSE_KEY, 'escape'], waitRelease=False, clear=False)
             
             # Analyze key presses
             for key in keys:
@@ -426,6 +428,8 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
         win.callOnFlip(offset_on_flip)
         win.flip(clearBuffer = True)
         rsvpExp.nextEntry()
+        
+        next_pokemon_onset += RSVP_RATE
     
     # Save block data
     rsvpExp.addData('blank_block.end', globalClock.getTime(format='float'))
@@ -545,7 +549,7 @@ def run_trial(run_idx, trial_dict, attention_cond, target_pokemon, target_color,
             elif t >= onset_time + PERIPH_STIM_DURATION:
                 pstim_idx +=1
                 
-        # record pstim onsets when window flips
+        # record stimulus onsets and offsets when the window flips
         def on_flip(): 
             flip_time = globalClock.getTime(format='float')
             
