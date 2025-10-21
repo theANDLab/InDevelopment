@@ -61,15 +61,15 @@ RESPONSE_KEY = 'space'
 exp_name = 'SimSeq'
 exp_info = {'Participant ID': '9999', 
             'Session': '001',
-            'Condition': 'color, motion, color-motion'
+            'Condition': 'color, motion, color-motion',
+            'Pokemon': 'Pikachu'
             }
 dlg = gui.DlgFromDict(dictionary=exp_info, title=exp_name)
 if dlg.OK == False:
     core.quit()  
 
 # Get targets
-#target_pokemon = exp_info['Pokemon'].strip().capitalize() # ensures first letter is capitalized
-target_pokemon = 'Eevee'
+target_pokemon = exp_info['Pokemon'].strip().capitalize() # ensures first letter is capitalized
 target_color = 'red'
 
 # Establish data output directory and output file column order
@@ -358,7 +358,7 @@ def create_trial_dicts(run_idx, all_grids, all_trial_rsvps, run_sim_onsets):
             trial_dicts.append(trial_dict)
     return trial_dicts
     
-def run_blank_block(rsvp, run_num, blank_num, last_target_onset): 
+def run_blank_block(rsvp, run_num, blank_num, attn_cond, last_target_onset): 
     """ Function to run a single blank block. """
     
     # Add data to data file
@@ -370,6 +370,7 @@ def run_blank_block(rsvp, run_num, blank_num, last_target_onset):
     for current_pokemon in rsvp:
         rsvpExp.addData('run', run_num)
         rsvpExp.addData('block', 'blank')
+        rsvpExp.addData('attention_cond', attn_cond)
         hit = 0
         is_target = (current_pokemon == target_pokemon)
         
@@ -579,6 +580,7 @@ def run_trial(run_idx, trial_dict, attention_cond, target_pokemon, target_color,
                 rsvpExp.addData('run', run_idx+1)
                 rsvpExp.addData('block', trial_dict['presentation_cond'])
                 rsvpExp.addData('trial', trial_dict['trial_num'])
+                rsvpExp.addData('attention_cond', attention_cond)
                 rsvpExp.addData('stim', current_pokemon.name)
                 rsvpExp.addData('stim.onset', flip_time)
                 
@@ -678,17 +680,18 @@ def perform_one_run(feat_cond, run_idx, attention_cond, blanks_rsvps, all_grids,
     
     # Run blank block before trials
     thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
-    last_target_onset = run_blank_block(blank_block_rsvps[0], run_idx+1, 1, last_target_onset)
+    last_target_onset = run_blank_block(blank_block_rsvps[0], run_idx+1, 1, attention_cond, last_target_onset)
     thisExp.addData('blank_block.end', globalClock.getTime(format='float'))
     thisExp.nextEntry()
 
     # Run all trials using trial dictionaries, updating accuracy
     for trial_dict in trial_dicts:
         last_target_onset = run_trial(run_idx, trial_dict, attention_cond, target_pokemon, target_color, last_target_onset)
+    rsvpExp.nextEntry()
     
     # Run blank block after trials
     thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
-    last_target_onset = run_blank_block(blank_block_rsvps[1], run_idx+1, 2, last_target_onset)
+    last_target_onset = run_blank_block(blank_block_rsvps[1], run_idx+1, 2, attention_cond, last_target_onset)
     thisExp.addData('blank_block.end', globalClock.getTime(format='float'))
     thisExp.nextEntry()
     
