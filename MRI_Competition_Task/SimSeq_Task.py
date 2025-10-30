@@ -9,7 +9,6 @@ from math import sin, cos, pi, radians
 import numpy as np
 from collections import deque
 import csv
-import itertools
 import random
 import itertools
 import os
@@ -115,7 +114,9 @@ win = visual.Window(fullscr=True,color=[0,0,0], screen=0,
                     colorSpace='rgb', units='deg')
 
 # Get monitor's refresh rate
-exp_info['frameRate'] = win.getActualFrameRate()
+frame_rate = win.getActualFrameRate()
+frame_dur = 1.0 / frame_rate
+exp_info['frameRate'] = frame_rate
 
 # Load Pokémon images from folder
 pokemon_dir = os.path.join(root_dir, 'pokemon_lightgray')
@@ -150,8 +151,6 @@ def end_task():
     
     thisExp.nextEntry()
     thisExp.addData('experiment.end', globalClock.getTime(format='float'))
-    
-    print("Task ended.")
     thisExp.saveAsWideText(filename + '.csv', delim='auto')
     thisExp.saveAsPickle(filename)
     logging.flush()
@@ -160,6 +159,7 @@ def end_task():
         win.clearAutoDraw()
         win.flip()
 
+    print("Task ended.")
     thisExp.abort() # or data files will save again on exit
     win.close()
     core.quit()
@@ -357,7 +357,8 @@ def create_trial_dicts(run_idx, all_grids, all_trial_rsvps, run_sim_onsets):
                     trial_dict['grid_onset'] = sim_onsets.popleft()
             trial_dicts.append(trial_dict)
     return trial_dicts
-    
+
+#time-based run_blank_block
 def run_blank_block(rsvp, run_num, blank_num, attn_cond, last_target_onset): 
     """ Function to run a single blank block. """
     
@@ -437,6 +438,86 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, last_target_onset):
     rsvpExp.nextEntry()
     
     return last_target_onset
+
+## frame-based run_blank_block
+#def run_blank_block(rsvp, run_num, blank_num, attn_cond, last_target_onset):
+#    """Run a frame-locked blank block of RSVP Pokémon stimuli."""
+#    
+#    #Setup timing
+#    frames_per_pokemon = int(RSVP_RATE / frame_dur)
+#    total_frames = len(rsvp) * frames_per_pokemon
+#
+#    #Log block start
+#    block_start = globalClock.getTime(format='float')
+#    rsvpExp.addData('blank_block.start', block_start)
+#    rsvpExp.addData('rsvp_seq', rsvp)
+#
+#    #Prepare tracking
+#    current_index = -1
+#    current_pokemon = None
+#    pokemon_onset = None
+#
+#    #Run continuous frame loop
+#    for frameN in range(total_frames):
+#        #Determine which Pokémon should be on screen this frame
+#        new_index = frameN // frames_per_pokemon
+#        if new_index != current_index:
+#            current_index = new_index
+#            current_pokemon = rsvp[current_index]
+#            is_target = (current_pokemon == target_pokemon)
+#            stim = pokemon_dict[current_pokemon]
+#            stim.pos = (0, 0)
+#            pokemon_onset = None
+#            hit = 0
+#
+#            #Log new stimulus onset on next flip
+#            win.callOnFlip(kb.clearEvents)
+#            def on_flip():
+#                nonlocal pokemon_onset, last_target_onset
+#                t = globalClock.getTime(format='float')
+#                pokemon_onset = t
+#                rsvpExp.addData('run', run_num)
+#                rsvpExp.addData('block', 'blank')
+#                rsvpExp.addData('attention_cond', attn_cond)
+#                rsvpExp.addData('stim', current_pokemon)
+#                rsvpExp.addData('stim.onset', t)
+#                if is_target:
+#                    last_target_onset = t
+#                    rsvpExp.addData('target.onset', t)
+#            win.callOnFlip(on_flip)
+#
+#        #Draw current Pokémon
+#        stim.draw()
+#        win.flip()
+#
+#        #Check keypresses each frame
+#        keys = kb.getKeys(keyList=[RESPONSE_KEY, 'escape'], waitRelease=False, clear=False)
+#        for key in keys:
+#            if key.name == 'escape':
+#                end_task()
+#            elif key.name == RESPONSE_KEY:
+#                press_time = key.rt
+#                rsvpExp.addData('press_time', press_time)
+#                if last_target_onset is not None:
+#                    rt = press_time - last_target_onset
+#                    rsvpExp.addData('rt', rt)
+#                    if rt <= RESPONSE_WINDOW:
+#                        hit = 1
+#                        rsvpExp.addData('hit', hit)
+#
+#        #At last frame of this Pokémon, mark offset
+#        if (frameN + 1) % frames_per_pokemon == 0:
+#            def offset_on_flip():
+#                t = globalClock.getTime(format='float')
+#                rsvpExp.addData('stim.offset', t)
+#                rsvpExp.nextEntry()
+#            win.callOnFlip(offset_on_flip)
+#
+#    #End of block
+#    rsvpExp.addData('blank_block.end', globalClock.getTime(format='float'))
+#    rsvpExp.nextEntry()
+#
+#    return last_target_onset
 
 def run_trial(run_idx, trial_dict, attention_cond, target_pokemon, target_color, last_target_onset):    
     """
