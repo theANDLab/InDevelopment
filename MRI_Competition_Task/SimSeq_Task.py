@@ -23,6 +23,7 @@ globalClock = core.Clock()
 kb = keyboard.Keyboard(clock = globalClock)
 
 # Experiment design
+FEAT_CONDS = ['color', 'motion', 'color-motion']
 ATTENTION_CONDS = ['FIX', 'COV']
 NUM_RUNS = 6 # runs in a feature condition; if changed, also need to change code in 'EXPERIMENT BLOCK' section
 RUNS_PER_COND = int(NUM_RUNS//len(ATTENTION_CONDS)) # runs per attention condition
@@ -65,9 +66,8 @@ exp_name = 'SimSeq'
 exp_info = {
     'Participant ID': '9999', 
     'Session': '001',
-    'Condition': ['color', 'motion', 'color-motion'],
     'Pokemon': 'Pikachu',
-    'Runs': '1,2,3,4,5,6'
+    'Runs': '1,2,3'
 }
 dlg = gui.DlgFromDict(dictionary=exp_info, title=exp_name)
 if dlg.OK == False:
@@ -80,16 +80,16 @@ target_pokemon = exp_info['Pokemon'].strip().capitalize() # ensures first letter
 run_list = [int(x.strip()) for x in exp_info['Runs'].split(',')]
 
 # Establish data output directory and output file column order
-time_str = time.strftime("%m_%d_%Y", time.localtime())
+time_str = time.strftime("%m_%d_%Y_%H_%M", time.localtime())
 root_dir = os.path.dirname(os.path.abspath(__file__))
 participant_folder = os.path.join(root_dir, 'data', f"{exp_info['Participant ID']}_{exp_name}_Session{exp_info['Session']}_{time_str}")
 os.makedirs(participant_folder, exist_ok=True)
 
-data_folder = os.path.join(participant_folder, f"{exp_info['Condition']}_cond")
-os.makedirs(data_folder, exist_ok=True)
+#data_folder = os.path.join(participant_folder, f"{exp_info['Condition']}_cond")
+#os.makedirs(data_folder, exist_ok=True)
 
-trials_filename = os.path.join(data_folder, f"trials_{exp_info['Participant ID']}_Session{exp_info['Session']}")
-rsvp_filename = os.path.join(data_folder, f"rsvp_{exp_info['Participant ID']}_Session{exp_info['Session']}")
+trials_filename = os.path.join(participant_folder, f"trials_{exp_info['Participant ID']}_Session{exp_info['Session']}")
+rsvp_filename = os.path.join(participant_folder, f"rsvp_{exp_info['Participant ID']}_Session{exp_info['Session']}")
 
 # Create an experiment handler to manage the data file and set the column order
 thisExp = data.ExperimentHandler(name=exp_name, version='', extraInfo=exp_info,
@@ -178,12 +178,12 @@ def end_task():
     
 def generate_blank_rsvps():
     """" 
-    Returns a dictionary where the keys are the unique run indices and the values are lists 
-    of each blank block's RSVP sequence for that run. (0-indexed)
+    Returns a dictionary where the keys are the visual set indices and the values are lists 
+    of each blank block's RSVP sequence for that set. (0-indexed)
     
     Example:
         Calling generate_blank_rsvps()[2][0] will return the RSVP sequence (list of pokemon names) 
-        of the first blank block in the third run. 
+        of the first blank block in the third visual set. 
     """
     num_unique_blanks = NUM_BLANK_BLOCKS * RUNS_PER_COND # how many unique rsvp sequences to generate for the blank blocks
     pokemon_per_blank = int(BLANK_BLOCK_DURATION // RSVP_RATE)
@@ -219,12 +219,12 @@ def generate_blank_rsvps():
     
 def generate_trial_rsvps():
     """ 
-    Returns a dictionary where the keys are the unique run indices and the values are lists 
-    of each trial's RSVP sequence for that run.(0-indexed)
+    Returns a dictionary where the keys are the unique visual set indices and the values are lists 
+    of each trial's RSVP sequence for that set.(0-indexed)
         
     Example:
         Calling generate_trial_rsvps()[0][32] will give the RSVP sequence (list of pokemon names) 
-        of the 33rd trial in the first run. 
+        of the 33rd trial in the first visual set. 
     """
 
     pokemon_per_trial = int(TRIAL_DURATION // RSVP_RATE)
@@ -390,14 +390,14 @@ def generate_sim_onsets():
         run_sim_onsets[run] = trial_onsets
     return run_sim_onsets
     
-def create_trial_dicts(run_idx, all_grids, all_trial_rsvps, run_sim_onsets):
+def create_trial_dicts(visual_set, all_grids, all_trial_rsvps, run_sim_onsets):
     """
     Returns a list of trial dictionaries for all of the trials in a run. Call at the start of each run. 
 
     Args:
-        run_idx (int): index of the run (0-indexed)
-        all_grids (list): all of the grid assignments for all unique runs.
-        all_trial_rsvps (dict): all of the rsvp sequences for all trials for all unique runs. 
+        visual_set (int): index of the visual set (0-indexed)
+        all_grids (list): all of the grid assignments for all visual sets.
+        all_trial_rsvps (dict): all of the rsvp sequences for all trials for all visual sets. 
         
     Returns:
         trial_dicts (list): Each value is a trial dictionary including:
@@ -407,8 +407,8 @@ def create_trial_dicts(run_idx, all_grids, all_trial_rsvps, run_sim_onsets):
     Example:
         Calling create_trial_dicts(0, all_grids, all_trial_rsvps, run_sim_onsets)[32] returns the trial dictionary of
         the 33rd trial in the first run. 
-    """
-    sim_onsets = deque(run_sim_onsets[run_idx])
+    """    
+    sim_onsets = deque(run_sim_onsets[visual_set])
     trial_dicts = []
     for block_idx, (visual_field, present_cond) in enumerate(BLOCK_DESIGN):
         for trial_in_block in range(NUM_TRIALS):
@@ -418,8 +418,8 @@ def create_trial_dicts(run_idx, all_grids, all_trial_rsvps, run_sim_onsets):
                 'trial_num': trial_idx + 1,
                 'visual_field': visual_field,
                 'presentation_cond': present_cond,
-                'peripheral_grid': all_grids[run_idx][trial_idx],
-                'rsvp_seq': all_trial_rsvps[run_idx][trial_idx]
+                'peripheral_grid': all_grids[visual_set][trial_idx],
+                'rsvp_seq': all_trial_rsvps[visual_set][trial_idx]
             }
             if present_cond == 'SIM':
                 if sim_onsets:
@@ -495,7 +495,7 @@ def show_instructions(feat_cond, attention_cond):
 
     thisExp.addData('instructions.end', globalClock.getTime(format='float')) 
 
-def run_blank_block(rsvp, run_num, blank_num, attn_cond, last_target_onset): 
+def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_onset): 
     """ Function to run a single blank block. """
     
     # Add data to data file
@@ -505,6 +505,7 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, last_target_onset):
     
     next_pokemon_onset = block_start
     for current_pokemon in rsvp:
+        rsvpExp.addData('feat_cond', feat_cond)
         rsvpExp.addData('run', run_num)
         rsvpExp.addData('block', 'blank')
         rsvpExp.addData('attention_cond', attn_cond)
@@ -575,7 +576,7 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, last_target_onset):
     
     return last_target_onset
 
-def run_trial(feat_cond, run_idx, trial_dict, attention_cond, last_target_onset):    
+def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):    
     """
     Function to run a single trial.
 
@@ -629,7 +630,8 @@ def run_trial(feat_cond, run_idx, trial_dict, attention_cond, last_target_onset)
     pstim_offset_recorded_dict = {pstim.name: False for pstim in pstim_to_draw}
         
     # Save trial variables to the data file
-    thisExp.addData('run', run_idx+1)
+    thisExp.addData('feat_cond', feat_cond)
+    thisExp.addData('run', run)
     thisExp.addData('block', trial_dict['block_num'] )
     thisExp.addData('trial', trial_dict['trial_num'])
     thisExp.addData('attention_cond', attention_cond)
@@ -744,7 +746,7 @@ def run_trial(feat_cond, run_idx, trial_dict, attention_cond, last_target_onset)
                     pstim_offset_recorded_dict[current_pstim.name] = True
                     
             if record_rsvp_onset:
-                rsvpExp.addData('run', run_idx+1)
+                rsvpExp.addData('run', run)
                 rsvpExp.addData('block', trial_dict['presentation_cond'])
                 rsvpExp.addData('trial', trial_dict['trial_num'])
                 rsvpExp.addData('attention_cond', attention_cond)
@@ -802,7 +804,7 @@ def run_trial(feat_cond, run_idx, trial_dict, attention_cond, last_target_onset)
 
 def perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets):
     
-    run_idx = (run - 1) % 3 # maps the run number to the rsvp and grid visuals
+    visual_set = (run - 1) % 3 # maps the run number to the rsvp and grid visuals
     attention_cond = 'FIX' if run <= RUNS_PER_COND else 'COV'
         
     # Reset last target onset
@@ -812,23 +814,23 @@ def perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_si
     show_instructions(feat_cond, attention_cond)
     
     # Extract visuals for this run
-    trial_dicts = create_trial_dicts(run_idx, all_grids, trial_rsvps, run_sim_onsets) # create trial dicts for this run
-    blank_block_rsvps = blanks_rsvps[run_idx] # 2 RSVP lists for the blank blocks in this run
+    trial_dicts = create_trial_dicts(visual_set, all_grids, trial_rsvps, run_sim_onsets) # create trial dicts for this run
+    blank_block_rsvps = blanks_rsvps[visual_set] # 2 RSVP lists for the blank blocks in this run
     
     # Run blank block before trials
     thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
-    last_target_onset = run_blank_block(blank_block_rsvps[0], run_idx+1, 1, attention_cond, last_target_onset)
+    last_target_onset = run_blank_block(blank_block_rsvps[0], run, 1, attention_cond, feat_cond, last_target_onset)
     thisExp.addData('blank_block.end', globalClock.getTime(format='float'))
     thisExp.nextEntry()
 
     # Run all trials using trial dictionaries, updating accuracy
     for trial_dict in trial_dicts:
-        last_target_onset = run_trial(feat_cond, run_idx, trial_dict, attention_cond, last_target_onset)
+        last_target_onset = run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset)
     rsvpExp.nextEntry()
     
     # Run blank block after trials
     thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
-    last_target_onset = run_blank_block(blank_block_rsvps[1], run_idx+1, 2, attention_cond, last_target_onset)
+    last_target_onset = run_blank_block(blank_block_rsvps[1], run, 2, attention_cond, feat_cond, last_target_onset)
     thisExp.addData('blank_block.end', globalClock.getTime(format='float'))
     thisExp.nextEntry()
     
@@ -897,18 +899,16 @@ if 'escape' in keys:
 # Clear the window
 win.flip() 
 
-# -----------Run feature condition
-feat_cond = exp_info['Condition']
-
 # Step 1: Generate or load the RSVP sequences and peripheral stimulus grids for all runs
 blanks_rsvps = generate_blank_rsvps()
 trial_rsvps = generate_trial_rsvps()
-all_grids = assign_grids(feat_cond)
 run_sim_onsets = generate_sim_onsets()
 
-# Step 2: Perform 3 Color-FIX and 3 Color-COV runs
-for run in run_list:
-    perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets)
+# Step 2: Perform 3 FIX runs of each feature condition
+for feat_cond in FEAT_CONDS:
+    all_grids = assign_grids(feat_cond)
+    for run in run_list:
+        perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets)
 
 ###### END EXPERIMENT ##################################################################################################################
 
