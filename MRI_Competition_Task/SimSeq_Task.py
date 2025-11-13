@@ -40,7 +40,7 @@ POKEMON_SIZE = [1.5, 1.5] # DVA, size of the pokemon during RSVP
 POKEMON_POS = (0,0) # location of rsvp pokemon
 NUM_PSTIMS = 4 # number of peripheral stimuli
 GRID_SIZE = 4 #DVA; height and width of the peripheral stimulus grid
-ECCENTRICITY = 7 #DVA from the center of the grid to the center of each peripheral stimulus
+ECCENTRICITY = 7 #DVA from the center of the screen to the center of the grid
 PERIPHERAL_STIM_COLORS = ['red', 'blue', 'green', 'yellow', 'magenta', 'cyan'] 
 FREQUENCY =  1.0 # 2 cycles per second
 AMPLITUDE = 0.75 # half of the circle's total motion in DVA
@@ -59,6 +59,7 @@ RESPONSE_WINDOW = 1.5 # sec; responses after this will be coded as FAs
 
 # Response key
 RESPONSE_KEY = 'space'
+SCANNER_KEY = '='
 
 ###### SETUP ###########################################################################################################################
 
@@ -358,7 +359,11 @@ def assign_grids(feat_cond):
                     chosen_colors = random.choice(color_available)
                     chosen_angles = random.choice(angle_available)
                 else:
-                    color_available = [c for c in colors_without_target if c not in used_color_configs] or colors_without_target
+                    if block_vf == 'RVF':
+                        color_pool = colors_without_target + rvf_target_colors
+                    else:
+                        color_pool = colors_without_target + lvf_target_colors
+                    color_available = [c for c in color_pool if c not in used_color_configs] or colors_without_target
                     angle_available =[a for a in angles_without_target if a not in used_angle_configs] or angles_without_target
                     chosen_colors = random.choice(color_available)
                     chosen_angles = random.choice(angle_available)
