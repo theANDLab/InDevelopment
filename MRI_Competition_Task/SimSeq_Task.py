@@ -8,15 +8,21 @@ import math
 from math import sin, cos, pi, radians
 import numpy as np
 from collections import deque
+from string import ascii_letters, digits
 import csv
 import random
 import itertools
 import os
 import sys
 import time
+import pylink
+from EyeLinkCoreGraphicsPsychoPy import EyeLinkCoreGraphicsPsychoPy
+from psychopy.tools.monitorunittools import pix2deg
 logging.console.setLevel(logging.ERROR)
 
 ###### PARAMETERS ######################################################################################################################
+
+EYETRACKER_OFF = False # Set to True to run the script without eyetracking
 
 # Initialize the global clock and keyboard
 globalClock = core.Clock()
@@ -41,12 +47,14 @@ POKEMON_POS = (0,0) # location of rsvp pokemon
 NUM_PSTIMS = 4 # number of peripheral stimuli
 GRID_SIZE = 4 #DVA; height and width of the peripheral stimulus grid
 ECCENTRICITY = 7 #DVA from the center of the screen to the center of the grid
-PERIPHERAL_STIM_COLORS = ['red', 'blue', 'green', 'yellow', 'magenta', 'cyan'] 
+PERIPHERAL_STIM_COLORS = [(0.8027, 0.4268, 0.6013), (0.6965,0.5192,0.2497), (0.4837,0.6019,0.3269), (0.2239,0.6331,0.6725), (0.4307, 0.5730, 0.9193), (0.7312, 0.4429, 0.8911)] # from CIELUV space
+CLR_SPC = 'rgb1'
 FREQUENCY =  1.0 # 2 cycles per second
 AMPLITUDE = 0.75 # half of the circle's total motion in DVA
 ANGLES = [0, 30, 60, 90, 120, 150] 
 TARGET_ANGLE = 90
-TARGET_COLOR = 'red'
+TARGET_COLOR = (0.8027, 0.4268, 0.6013) # red
+GAZE_BOUND = 2 # if gaze shifts more than this from fixation point, flag the trial
 
 # Timing
 BLANK_BLOCK_DURATION = 16 # seconds
@@ -70,9 +78,23 @@ exp_info = {
     'Pokemon': 'Pikachu',
     'Runs': '1,2,3'
 }
-dlg = gui.DlgFromDict(dictionary=exp_info, title=exp_name)
-if dlg.OK == False:
-    core.quit()  
+while True:
+    dlg = gui.DlgFromDict(dictionary=exp_info, title=exp_name)
+    if dlg.OK == False:
+        core.quit()
+        sys.exit()
+
+    # write edf filename
+    edf_filename = f"{exp_info['Participant ID']}_ET"
+
+    # check if the filename is valid
+    allowed_char = ascii_letters + digits + '_'
+    if not all([c in allowed_char for c in edf_filename]):
+        raise ValueError('ERROR: Invalid EDF filename. Enter only letters, digits, or underscores.')
+    elif len(edf_filename) > 8:
+        raise ValueError("ERROR: Invalid EDF filename: participant ID must be ≤5 characters.")
+    else:
+        break
 
 # Get target pokemon
 target_pokemon = exp_info['Pokemon'].strip().capitalize() # ensures first letter is capitalized
@@ -85,9 +107,7 @@ time_str = time.strftime("%m_%d_%Y_%H_%M", time.localtime())
 root_dir = os.path.dirname(os.path.abspath(__file__))
 participant_folder = os.path.join(root_dir, 'data', f"{exp_info['Participant ID']}_{exp_name}_Session{exp_info['Session']}_{time_str}")
 os.makedirs(participant_folder, exist_ok=True)
-
-#data_folder = os.path.join(participant_folder, f"{exp_info['Condition']}_cond")
-#os.makedirs(data_folder, exist_ok=True)
+edf_path = os.path.join(participant_folder, f"{edf_filename}_Session{exp_info['Session']}") # file for eyetracker data
 
 trials_filename = os.path.join(participant_folder, f"trials_{exp_info['Participant ID']}_Session{exp_info['Session']}")
 rsvp_filename = os.path.join(participant_folder, f"rsvp_{exp_info['Participant ID']}_Session{exp_info['Session']}")
@@ -119,11 +139,16 @@ exp_info['expDate'] = data.getDateStr(format = '%Y-%m-%d %Hh%M.%S.%f %z', fracti
 thisExp.status = STARTED
 
 # Window setup (will need to be adjusted to match the MRI monitor)
-win = visual.Window(fullscr=True,color=[0,0,0], screen=0, 
-                    size = [3024,1964], monitor='testMonitor',
-                    winType='pyglet', allowStencil=False,
-                    blendMode='avg', useFBO=False,
-                    colorSpace='rgb', units='deg')
+Eizo = monitors.Monitor('Eizo', width = 51.84, distance = 60)
+Eizo.setSizePix([1920, 1200])
+win = visual.Window(fullscr=True, color=[0.9032,0.8051,0.9655],
+            size=Eizo.getSizePix(), screen=1,
+            winType='pyglet', allowStencil=False,
+            monitor=Eizo, colorSpace=CLR_SPC,
+            backgroundImage='', backgroundFit='none',
+            blendMode='avg', useFBO=False,
+            units='deg', 
+            checkTiming=False)
 
 # Get monitor's refresh rate
 frame_rate = win.getActualFrameRate()
@@ -156,6 +181,94 @@ lvf_topright = [-gridcent_x + offset, gridcent_y + offset]  # Top right peripher
 lvf_botleft = [-gridcent_x - offset, gridcent_y - offset]  # Bottom left peripheral stimulus in LVF
 lvf_botright = [-gridcent_x + offset, gridcent_y - offset]  # Bottom right peripheral stimulus in LVF
 
+# -------------- Connect to the EyeLink Host PC; based on sample scripts from SR Research
+if EYETRACKER_OFF:
+    el_tracker = pylink.EyeLink(None) # Need this line so code will run when not using eyetracking
+else:
+    try:
+        el_tracker = pylink.EyeLink("100.1.1.1")
+    except RuntimeError as error:
+        print('ERROR:', error)
+        core.quit()
+        sys.exit()
+        
+# Open the EDF data file on the Host PC
+edf_file = edf_filename + ".EDF"
+try:
+    el_tracker.openDataFile(edf_file)
+except RuntimeError as err:
+    print('ERROR:', err)
+    # close the link if we have one open
+    if el_tracker.isConnected():
+        el_tracker.close()
+    core.quit()
+    sys.exit()
+
+# Add header text to EDF file for data viewing
+preamble_text = 'RECORDED BY %s' % os.path.basename(__file__)
+el_tracker.sendCommand("add_file_preamble_text '%s'" % preamble_text)
+
+# Put the tracker in offline mode before we change tracking parameters
+el_tracker.setOfflineMode()
+
+# Get eyetracker version/model; EyeLink 1000 Plus is version 5
+eyelink_ver = 0  # Set to 0 so code will run when not using eyetracking
+if not EYETRACKER_OFF:
+    vstr = el_tracker.getTrackerVersionString()
+    eyelink_ver = int(vstr.split()[-1].split('.')[0])
+
+# Set what eye events to save in the EDF file and make available over the link, include everything by default
+file_event_flags = 'LEFT,RIGHT,FIXATION,SACCADE,BLINK,MESSAGE,BUTTON,INPUT'
+link_event_flags = 'LEFT,RIGHT,FIXATION,SACCADE,BLINK,BUTTON,FIXUPDATE,INPUT'
+# Set what sample data to save in the EDF data file and to make available over the link
+if eyelink_ver > 3:
+    file_sample_flags = 'LEFT,RIGHT,GAZE,HREF,RAW,AREA,HTARGET,GAZERES,BUTTON,STATUS,INPUT'
+    link_sample_flags = 'LEFT,RIGHT,GAZE,GAZERES,AREA,HTARGET,STATUS,INPUT'
+else: # For when running without eyetracking
+    file_sample_flags = 'LEFT,RIGHT,GAZE,HREF,RAW,AREA,GAZERES,BUTTON,STATUS,INPUT'
+    link_sample_flags = 'LEFT,RIGHT,GAZE,GAZERES,AREA,STATUS,INPUT'
+el_tracker.sendCommand("file_event_filter = %s" % file_event_flags)
+el_tracker.sendCommand("file_sample_data = %s" % file_sample_flags)
+el_tracker.sendCommand("link_event_filter = %s" % link_event_flags)
+el_tracker.sendCommand("link_sample_data = %s" % link_sample_flags)
+
+# Choose a calibration type (HV = horizontal/vertical) number is how many points on the screen
+el_tracker.sendCommand("calibration_type = HV5")
+
+# Get the screen resolution used by PsychoPy
+scn_width, scn_height = win.size # in retina pixels
+
+# Pass the display pixel coordinates (left, top, right, bottom) to the tracker
+el_coords = "screen_pixel_coords = 0 0 %d %d" % (scn_width - 1, scn_height - 1)
+el_tracker.sendCommand(el_coords)
+
+# Write a DISPLAY_COORDS message to the EDF file
+# Data Viewer needs this piece of info for proper visualization
+dv_coords = "DISPLAY_COORDS  0 0 %d %d" % (scn_width - 1, scn_height - 1)
+el_tracker.sendMessage(dv_coords)
+
+# Configure a graphics environment (genv) for tracker calibration
+genv = EyeLinkCoreGraphicsPsychoPy(el_tracker, win)
+
+# Set visuals for calibration routine
+foreground_color = (-1, -1, -1)
+background_color = win.color
+genv.setCalibrationColors(foreground_color, background_color)
+genv.setTargetType('picture')
+genv.setPictureTarget(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'andy_fixation.png')) 
+
+# Beeps to play during calibration, validation and drift correction
+# parameters: target, good, error
+#     target -- sound to play when target moves
+#     good -- sound to play on successful operation
+#     error -- sound to play on failure or interruption
+# Each parameter could be ''--default sound, 'off'--no sound, or a wav file
+genv.setCalibrationSounds('boing.wav', '', '')
+
+# Request Pylink to use the PsychoPy window we opened above for calibration
+pylink.openGraphicsEx(genv)
+logging.info(f"Graphics environment set up: {genv}")
+
 ###### FUNCTIONS #######################################################################################################################
 
 def end_task():
@@ -170,12 +283,71 @@ def end_task():
     if win is not None:
         win.clearAutoDraw()
         win.flip()
+        
+    if not EYETRACKER_OFF:
+        # Disconnect eyetracker
+        el_tracker = pylink.getEYELINK()
+        if el_tracker.isConnected():
+            # Put tracker in Offline mode
+            el_tracker.setOfflineMode()
+            # Clear the Host PC screen and wait for 500 ms
+            el_tracker.sendCommand('clear_screen 0')
+            pylink.msecDelay(500)
+            # Close the edf data file on the Host
+            el_tracker.closeDataFile()
+            # Print a file transfer message
+            print('EDF data is transferring from EyeLink Host PC...')
+            # Download the EDF data file from the Host PC to a local data folder
+            try:
+                el_tracker.receiveDataFile(edf_file, edf_path)
+                print(f"EDF file saved to: {edf_path}")
+            except RuntimeError as error:
+                print('ERROR downloading EDF file:', error)
+            # Close the link to the tracker
+            el_tracker.close()
 
     print("Task ended.")
     thisExp.abort() # or data files will save again on exit
     win.close()
     core.quit()
     sys.exit()
+    
+def get_eye_used(el_tracker):
+    """ Gets eye used. Returns 0 for left, 1 for right, None if eye data cannot be collected.t"""
+    if EYETRACKER_OFF:
+        return 0 # For when running without eyetracking
+        
+    if el_tracker is not None and el_tracker.isConnected():
+        eye = el_tracker.eyeAvailable()
+        if eye in [0, 1]:
+            el_tracker.sendMessage(f"EYE_USED {eye} {'RIGHT' if eye == 1 else 'LEFT'}")
+            return eye
+        elif eye == 2: # binocular vision defaults to left eye
+            el_tracker.sendMessage("EYE_USED 0 LEFT")
+            return 0
+            
+    print("ERROR: EyeLink not connected or invalid eye")
+    return None
+    
+def is_gaze_within_bounds(el_tracker, eye_used):
+    """ Check that gaze is within GAZE_BOUND, return False if not. """
+    while True:
+        sample = el_tracker.getNewestSample()
+        
+        if eye_used == 0 and sample.isLeftSample():
+            eye_data = sample.getLeftEye()
+        elif eye_used == 1 and sample.isRightSample():
+            eye_data = sample.getRightEye()
+        
+        gaze = eye_data.getGaze()
+        pupil = eye_data.getPupilSize()
+        
+        dx = gaze[0] - scn_width/2
+        dy = scn_height/2 - gaze[1]
+        pixels = np.array([dx, dy])
+        dx_deg, dy_deg = pix2deg(pixels, monitor=Eizo)
+        
+        return abs(dx_deg) <= GAZE_BOUND and abs(dy_deg) <= GAZE_BOUND
     
 def generate_blank_rsvps():
     """" 
@@ -438,41 +610,40 @@ def show_instructions(feat_cond, attention_cond):
     
     # Instructions based on target in cov condition
     if feat_cond == 'color':
-        cov_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
+        cov_instructions_text = visual.TextStim(win=win, text=(
                 "There's a Pokémon Party happening right now, and the Pokémon are hungry!\n\n\n\n\n\n"
-                f"The Pokémon like to eat {TARGET_COLOR} circles like these! Can you help feed them?\n\n\n"
-                f"Press the button as fast as you can every time you see a {TARGET_COLOR} circle.\n\n\n"
-                "Ready to start playing?"
-            ))
+                "The Pokémon like to eat red circles like these! Can you help feed them?\n\n\n"
+                "Press the button as fast as you can every time you see a red circle.\n\n\n"
+                "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
+            color='black', colorSpace=CLR_SPC)
         instruc_pstim = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2, 
             units = 'deg', anchor = 'center', fillColor=TARGET_COLOR, lineColor=TARGET_COLOR)
-    elif feat_cond == 'motion':
-        cov_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
+    elif feat_cond == 'motion':   
+        cov_instructions_text = visual.TextStim(win=win, text=(
                 "There's a Pokémon Party happening right now, and the Pokémon are hungry!\n\n\n\n\n\n"
                 f"The Pokémon like to eat black circles that move up and down like this! Can you help feed them?\n\n\n"
                 f"Press the button as fast as you can every time you see a black circle moving up and down.\n\n\n"
-                "Ready to start playing?"
-            ))       
+                "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
+            color='black', colorSpace=CLR_SPC)
         instruc_pstim = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2, 
             units = 'deg', anchor = 'center', fillColor='black', lineColor='black')
     elif feat_cond == 'color-motion':
-        cov_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
+        cov_instructions_text = visual.TextStim(win=win, text=(
                 "There's a Pokémon Party happening right now, and the Pokémon are hungry!\n\n\n\n\n\n"
-                f"The Pokémon like to eat {TARGET_COLOR} circles that move up and down like this! Can you help feed them?\n\n\n"
-                f"Press the button as fast as you can every time you see a {TARGET_COLOR} circle movinf up and down.\n\n\n"
-                "Ready to start playing?"
-            ))
+                "The Pokémon like to eat red circles that move up and down like this! Can you help feed them?\n\n\n"
+                "Press the button as fast as you can every time you see a red circle movinf up and down.\n\n\n"
+                "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
+            color='black', colorSpace=CLR_SPC)
         instruc_pstim = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2, 
             units = 'deg', anchor = 'center', fillColor=TARGET_COLOR, lineColor=TARGET_COLOR)
-            
+
     # Fix instructions are the same throughout all feature conditions
-    fix_instructions_text = visual.TextStim(win, pos = (0,0), wrapWidth=27, text=(
+    fix_instructions_text = visual.TextStim(win=win, text=(
         "There's a Pokémon Party happening right now, and the Pokémon are playing hide and seek!\n\n"
         f"The Pokémon are trying to find {target_pokemon}! Can you help them? {target_pokemon} will show up like this:\n\n\n"
-        f"\nPress the button as fast as you can every time you see {target_pokemon}.\n\n\n"
-        "Ready to start playing?"
-    ))
-        
+        f"\n\nPress the button as fast as you can every time you see {target_pokemon}.\n\n\n"
+        "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
+        color='black', colorSpace=CLR_SPC)
     if attention_cond == "FIX":
         fix_instructions_text.draw()
         pokemon_dict[target_pokemon].pos = (0, 0) 
@@ -628,7 +799,7 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
     phases = [0, 0, np.pi/2, np.pi/2] # half of the circles will start at middle of motion, and half will start at a peak
     random.shuffle(phases)
     for color, angle, pos, phase in zip(pstim_colors, pstim_angles, grid_positions, phases):
-        pstim = visual.Circle(win, name = f"{color}_{angle}", pos = pos, radius = PERIPHERAL_STIM_SIZE/2 , units = 'deg', anchor = 'center', fillColor=color, lineColor=color)
+        pstim = visual.Circle(win, name = f"{color}_{angle}", pos = pos, radius = PERIPHERAL_STIM_SIZE/2 , units = 'deg', anchor = 'center', fillColor=color, lineColor=color, colorSpace=CLR_SPC)
         pstim_to_draw.append(pstim) # create a list of pstims to draw in this trial
         pstim_info[pstim.name] = {'angle': angle, 'base_pos': pstim.pos, 'phase': phase}
     pstim_onset_recorded_dict = {pstim.name: False for pstim in pstim_to_draw}
@@ -660,6 +831,43 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
     elif attention_cond == 'COV':
         target_shown = TARGET_COLOR in pstim_colors # T or F
     
+    # -------------------- Eyetracker Setup ---------------------------------
+    # Esure tracker is ready to receive commands
+    el_tracker = pylink.getEYELINK()
+    el_tracker.setOfflineMode()
+    el_tracker.sendCommand('clear_screen 0')
+    
+    # Print trial number on eyelink host monitor and output console
+    status_msg = 'TRIAL number %d' % trial_dict['trial_num']
+    el_tracker.sendMessage('TRIALID %d' % trial_dict['trial_num'])
+
+    # Send status message to host PC
+    el_tracker.sendCommand("record_status_message '%s'" % status_msg)
+
+    # put tracker in idle/offline mode before recording
+    el_tracker.setOfflineMode()
+    
+    # Start recording
+    try:
+        el_tracker.startRecording(1, 1, 1, 1) # arguments: sample_to_file, events_to_file, sample_over_link, event_over_link (1-yes, 0-no)
+    except RuntimeError as error:
+        print("ERROR:", error)
+    
+    # Allocate time for the tracker to cache some samples
+    pylink.pumpDelay(100) 
+    
+    # Get eye used
+    eye_used = get_eye_used(el_tracker)
+    if eye_used is None and not EYETRACKER_OFF:
+        print(f"Could not get eye used on trial {trial_dict['trial_num']}.")
+        
+    # Mark trial if eyetracker disconnected
+    error = el_tracker.isRecording()
+    if error is not pylink.TRIAL_OK:
+        el_tracker.sendMessage('tracker_disconnected')
+        print("Tracker disconnected.")
+        
+    # ------------------------------------------------------------------------
     # Start the trial loop
     while globalClock.getTime() < trial_end:
         update_target_onset = False
@@ -673,6 +881,11 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
             rsvp_idx +=1
             next_pokemon_onset += RSVP_RATE
             rsvpExp.nextEntry()
+            # Gaze tracking until end of trial
+            if not EYETRACKER_OFF:
+                if not is_gaze_within_bounds(el_tracker, eye_used):
+                    print(f"Trial {trial_dict['trial_num']}: Fixation broken")
+                    thisExp.addData('fix.broken', 'fix.broken')
             
             if attention_cond == "FIX" and current_pokemon.name == target_pokemon:
                 win.callOnFlip(lambda: rsvpExp.addData('target.onset', globalClock.getTime()))
@@ -685,7 +898,7 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
         if is_sim_trial:
             for pstim in pstim_to_draw:
                 if trial_start + pstim_start_time <= t < trial_start + pstim_start_time + PERIPH_STIM_DURATION:
-                    if attention_cond == "COV" and pstim.fillColor == TARGET_COLOR:
+                    if attention_cond == "COV" and (pstim.fillColor == TARGET_COLOR).all():
                         update_target_onset = True
                     angle = pstim_info[pstim.name]['angle']
                     base_pos = pstim_info[pstim.name]['base_pos']
@@ -705,7 +918,7 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
             current_pstim = pstim_to_draw[pstim_idx]
             onset_time = trial_start + pstim_onsets[pstim_idx]
             if onset_time <= t < onset_time + PERIPH_STIM_DURATION:
-                if attention_cond == "COV" and current_pstim.fillColor == TARGET_COLOR:
+                if attention_cond == "COV" and (current_pstim.fillColor == TARGET_COLOR).all():
                     update_target_onset = True
                 angle = pstim_info[current_pstim.name]['angle']
                 base_pos = pstim_info[current_pstim.name]['base_pos']
@@ -840,14 +1053,15 @@ def perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_si
     thisExp.nextEntry()
     
     # Show feedback statement at the end of the run based on attention condition
-    end_text = visual.TextStim(win, wrapWidth=27, text=())
+    end_text = visual.TextStim(win=win, text=(), font='Arial', units='deg', pos=(0, 0), height=1.2, wrapWidth=1700, 
+        color='black', colorSpace=CLR_SPC)
     if attention_cond == 'FIX':
         end_text.text = (f"Great job finding {target_pokemon}!")
         pokemon_dict[target_pokemon].pos = (0, -5) 
         pokemon_dict[target_pokemon].size = (5,5)
         pokemon_dict[target_pokemon].draw()
     elif attention_cond == 'COV':
-        end_text.text = (f"Great job feeding the Pokémon {TARGET_COLOR} circles!")
+        end_text.text = ("Great job feeding the Pokémon red circles!")
         target_pstim = visual.Circle(win, name = TARGET_COLOR, pos = (0,-5), radius = 5/2 , units = 'deg', anchor = 'center', fillColor=TARGET_COLOR, lineColor=TARGET_COLOR)
         target_pstim.draw()
     end_text.draw()
@@ -863,11 +1077,14 @@ def perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_si
   
 ###### WELCOME SCREEN ##################################################################################################################
 
-# Clear the window
+# Clear the window and set start time
 win.flip() 
+thisExp.addData('welcome.start', globalClock.getTime(format='float'))
+thisExp.status = STARTED
 
 # Draw welcome screen with Pokémon images
-welcome_text = visual.TextStim(win, pos=(0,0), height= 1.5, wrapWidth=27, text=("Welcome to the Pokémon Party game!"))
+welcome_text = visual.TextStim(win=win, text="Welcome to the Pokémon Party game!", font='Arial', units='deg', pos=(0, 0), height=1.2, wrapWidth=1700, 
+    color='black', colorSpace=CLR_SPC)
 welcome_pokemon = {
     "Bulbasaur":  ((10, -5), (5, 5)),
     "Pikachu":    ((5, -5),  (5, 5)),
@@ -894,10 +1111,19 @@ for pokemon in pokemon_dict:
     pokemon_dict[pokemon].size = POKEMON_SIZE
     pokemon_dict[pokemon].pos = (0,0)
 
-# Wait for space or escape key
-keys = event.waitKeys(keyList=['space', 'escape'])
-if 'escape' in keys:
-    end_task()
+# Calibrate eyetracker if on
+if not EYETRACKER_OFF:
+    thisExp.addData('calibration.start', globalClock.getTime(format='float'))
+    try:
+        el_tracker.doTrackerSetup()
+    except RuntimeError as err:
+        print('ERROR:', err)
+        el_tracker.exitCalibration()
+    thisExp.addData('calibration.end', globalClock.getTime(format='float'))
+else: # Wait for space or escape key
+    keys = event.waitKeys(keyList=['space', 'escape'])
+    if 'escape' in keys:
+        end_task()
 
 ###### EXPERIMENT BLOCK ################################################################################################################
 
@@ -918,7 +1144,8 @@ for feat_cond in FEAT_CONDS:
 ###### END EXPERIMENT ##################################################################################################################
 
 # Draw thank you text 
-thanks_text = visual.TextStim(win, wrapWidth=30, text=("Thanks for coming to the Pokémon Party!"))
+thanks_text = visual.TextStim(win=win, text="Thanks for coming to the Pokémon Party!", font='Arial', units='deg', pos=(0, 0), height=1.2, wrapWidth=1700, 
+    color='black', colorSpace=CLR_SPC)
 thanks_text.draw()
 win.flip()
 # Close experiment window and save data when space is pressed
