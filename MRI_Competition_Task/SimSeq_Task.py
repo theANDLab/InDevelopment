@@ -23,19 +23,19 @@ logging.console.setLevel(logging.ERROR)
 ###### PARAMETERS ######################################################################################################################
 
 EYETRACKER_OFF = False # Set to True to run the script without eyetracking
+FEAT_CONDS = ['color', 'motion', 'color-motion'] # which feature conditions to display
 
 # Initialize the global clock and keyboard
 globalClock = core.Clock()
 kb = keyboard.Keyboard(clock = globalClock)
 
 # Experiment design
-FEAT_CONDS = ['color', 'motion', 'color-motion']
 ATTENTION_CONDS = ['FIX', 'COV']
-NUM_RUNS = 6 # runs in a feature condition; if changed, also need to change code in 'EXPERIMENT BLOCK' section
-RUNS_PER_COND = int(NUM_RUNS//len(ATTENTION_CONDS)) # runs per attention condition
+NUM_RUNS = 6 # how many runs in one feature condition; if changed, also need to change code in 'EXPERIMENT BLOCK' section
+RUNS_PER_COND = int(NUM_RUNS//len(ATTENTION_CONDS)) # equal number of FIX and COV runs per feature condition (runs 1,2,3 are FIX; 4,5,6 are COV)
 NUM_SIM_BLOCKS = 6 # per run
 NUM_SEQ_BLOCKS = 6 # per run
-NUM_BLANK_BLOCKS = 2 # per run
+NUM_BLANK_BLOCKS = 2 # one before and one after each run
 NUM_TRIALS = 3 # per block
 BLOCK_DESIGN = [('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM'),('RVF','SEQ'),('LVF','SIM'),
                 ('RVF','SIM'),('LVF','SEQ'),('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM')]
@@ -47,13 +47,14 @@ POKEMON_POS = (0,0) # location of rsvp pokemon
 NUM_PSTIMS = 4 # number of peripheral stimuli
 GRID_SIZE = 4 #DVA; height and width of the peripheral stimulus grid
 ECCENTRICITY = 7 #DVA from the center of the screen to the center of the grid
-PERIPHERAL_STIM_COLORS = [(0.8027, 0.4268, 0.6013), (0.6965,0.5192,0.2497), (0.4837,0.6019,0.3269), (0.2239,0.6331,0.6725), (0.4307, 0.5730, 0.9193), (0.7312, 0.4429, 0.8911)] # from CIELUV space
+PERIPHERAL_STIM_COLORS = {"red":(0.8027, 0.4268, 0.6013), "orange":(0.6965,0.5192,0.2497), "green":(0.4837,0.6019,0.3269), 
+    "cyan":(0.2239,0.6331,0.6725), "blue":(0.4307, 0.5730, 0.9193), "magenta":(0.7312, 0.4429, 0.8911)} # from CIELUV space
 CLR_SPC = 'rgb1'
-FREQUENCY =  1.0 # 2 cycles per second
-AMPLITUDE = 0.75 # half of the circle's total motion in DVA
-ANGLES = [0, 30, 60, 90, 120, 150] 
-TARGET_ANGLE = 90
-TARGET_COLOR = (0.8027, 0.4268, 0.6013) # red
+FREQUENCY =  1.0 # Hz
+AMPLITUDE = 0.75 # half of the stim's total motion in DVA
+ANGLES = [0, 30, 60, 90, 120, 150] # all possible angles of motion
+TARGET_ANGLE = 90 # vertical motion
+TARGET_COLOR = 'red' # (0.8027, 0.4268, 0.6013)
 GAZE_BOUND = 2 # if gaze shifts more than this from fixation point, flag the trial
 
 # Timing
@@ -66,17 +67,22 @@ POKEMON_TARGET_FREQ = [15,30] # pokemon targets will occur every 15-30 pokemon (
 RESPONSE_WINDOW = 1.5 # sec; responses after this will be coded as FAs
 
 # Response key
-RESPONSE_KEY = 'space'
+RESPONSE_KEY = '1'
 SCANNER_KEY = '='
 
 ###### SETUP ###########################################################################################################################
 
+pokemon_names = ["Bulbasaur", "Pikachu", "Squirtle", "Charmander", "Magikarp", "Raticate", "Pidgey",
+    "Metapod", "Jigglypuff", "Butterfree", "Psyduck", "Caterpie", "Krabby",
+    "Haunter", "Vulpix", "Eevee", "Sandshrew", "Wartortle", "Charmeleon", "Clefairy",
+    "Ponyta", "Mankey"]
+    
 exp_name = 'SimSeq'
 exp_info = {
     'Participant ID': '9999', 
     'Session': '001',
-    'Pokemon': 'Pikachu',
-    'Runs': '1,2,3'
+    'Pokemon': pokemon_names,
+    'Runs': 'FIX: 1,2,3; COV: 4,5,6'
 }
 while True:
     dlg = gui.DlgFromDict(dictionary=exp_info, title=exp_name)
@@ -122,8 +128,8 @@ rsvpExp = data.ExperimentHandler(name='rsvp',extraInfo=exp_info,
                                 savePickle=True, saveWideText=True,
                                 dataFileName=rsvp_filename)
                                 
-column_order = ['instructions.start', 'instructions.end', 'blank_block.start', 'blank_block.end', 'run', 'block', 'trial',
-    'attention_cond', 'presentation_cond', 'vf', 'rsvp_seq', 'pstim_colors', 'pstim_angles','trial.start', 'pstim.onset', 
+column_order = ['instructions.start', 'instructions.end', 'blank_block.start', 'blank_block.end', 'feat_cond', 'run', 'attention_cond','block',
+    'presentation_cond', 'vf', 'trial', 'rsvp_seq', 'pstim_colors', 'pstim_angles','trial.start', 'pstim.onset', 
     'target_shown', 'target.onset', 'press_times', 'rts', 'keypresses', 'hit']
     
 rsvp_column_order = ['blank_block.start', 'rsvp_seq', 'run', 'block', 'trial']
@@ -139,7 +145,7 @@ exp_info['expDate'] = data.getDateStr(format = '%Y-%m-%d %Hh%M.%S.%f %z', fracti
 thisExp.status = STARTED
 
 # Window setup (will need to be adjusted to match the MRI monitor)
-Eizo = monitors.Monitor('Eizo', width = 51.84, distance = 60)
+Eizo = monitors.Monitor('Eizo', width = 51.84, distance = 51) # screen width (cm) and distance from the screen (cm)
 Eizo.setSizePix([1920, 1200])
 win = visual.Window(fullscr=True, color=[0.9032,0.8051,0.9655],
             size=Eizo.getSizePix(), screen=1,
@@ -156,10 +162,6 @@ frame_dur = 1.0 / frame_rate
 exp_info['frameRate'] = frame_rate
 
 # Load Pokémon images from folder
-pokemon_names = ["Bulbasaur", "Pikachu", "Squirtle", "Charmander", "Magikarp", "Raticate", "Pidgey",
-    "Metapod", "Jigglypuff", "Butterfree", "Psyduck", "Caterpie", "Krabby",
-    "Haunter", "Vulpix", "Eevee", "Sandshrew", "Wartortle", "Charmeleon", "Clefairy",
-    "Ponyta", "Mankey"]
 pokemon_dir = os.path.join(root_dir, 'pokemon_lightgray')
 pokemon_dict = {name: visual.ImageStim(win, name=name, image=os.path.join(pokemon_dir, f"{i+1:03}.png"))
     for i, name in enumerate(pokemon_names)} # dictionary of the pokemon where the key is their name and the values are the ImageStim object
@@ -442,7 +444,7 @@ def assign_grids(feat_cond):
     all_grids = []
 
     #-------Color feature condition
-    all_color_combos = list(itertools.combinations(PERIPHERAL_STIM_COLORS, NUM_PSTIMS)) # all possible subsets of 4 colors from 6
+    all_color_combos = list(itertools.combinations(PERIPHERAL_STIM_COLORS.keys(), NUM_PSTIMS)) # all possible subsets of 4 colors from 6
     all_color_configs = []
     for combo in all_color_combos:
         all_color_configs.extend(itertools.permutations(combo)) # all possible ways to uniquely order those 4 colors
@@ -599,8 +601,7 @@ def create_trial_dicts(visual_set, all_grids, all_trial_rsvps, run_sim_onsets):
                 'rsvp_seq': all_trial_rsvps[visual_set][trial_idx]
             }
             if present_cond == 'SIM':
-                if sim_onsets:
-                    trial_dict['grid_onset'] = sim_onsets.popleft()
+                trial_dict['grid_onset'] = sim_onsets.popleft()
             trial_dicts.append(trial_dict)
     return trial_dicts
 
@@ -612,12 +613,14 @@ def show_instructions(feat_cond, attention_cond):
     if feat_cond == 'color':
         cov_instructions_text = visual.TextStim(win=win, text=(
                 "There's a Pokémon Party happening right now, and the Pokémon are hungry!\n\n\n\n\n\n"
-                "The Pokémon like to eat red circles like these! Can you help feed them?\n\n\n"
-                "Press the button as fast as you can every time you see a red circle.\n\n\n"
+                f"The Pokémon like to eat {TARGET_COLOR} circles like these! Can you help feed them?\n\n\n"
+                f"Press the button as fast as you can every time you see a {TARGET_COLOR} circle.\n\n\n"
                 "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
             color='black', colorSpace=CLR_SPC)
         instruc_pstim = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2, 
-            units = 'deg', anchor = 'center', fillColor=TARGET_COLOR, lineColor=TARGET_COLOR)
+            units = 'deg', anchor = 'center', fillColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], lineColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], colorSpace = CLR_SPC)
+        instruc_pstim2 = visual.Circle(win, pos = lvf_botright, radius = PERIPHERAL_STIM_SIZE/2, 
+            units = 'deg', anchor = 'center', fillColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], lineColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], colorSpace = CLR_SPC)
     elif feat_cond == 'motion':   
         cov_instructions_text = visual.TextStim(win=win, text=(
                 "There's a Pokémon Party happening right now, and the Pokémon are hungry!\n\n\n\n\n\n"
@@ -627,15 +630,19 @@ def show_instructions(feat_cond, attention_cond):
             color='black', colorSpace=CLR_SPC)
         instruc_pstim = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2, 
             units = 'deg', anchor = 'center', fillColor='black', lineColor='black')
+        instruc_pstim2 = visual.Circle(win, pos = lvf_botright, radius = PERIPHERAL_STIM_SIZE/2, 
+            units = 'deg', anchor = 'center', fillColor='black', lineColor='black')
     elif feat_cond == 'color-motion':
         cov_instructions_text = visual.TextStim(win=win, text=(
                 "There's a Pokémon Party happening right now, and the Pokémon are hungry!\n\n\n\n\n\n"
-                "The Pokémon like to eat red circles that move up and down like this! Can you help feed them?\n\n\n"
-                "Press the button as fast as you can every time you see a red circle movinf up and down.\n\n\n"
+                f"The Pokémon like to eat {TARGET_COLOR} circles that move up and down like this! Can you help feed them?\n\n\n"
+                f"Press the button as fast as you can every time you see a {TARGET_COLOR} circle movinf up and down.\n\n\n"
                 "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
             color='black', colorSpace=CLR_SPC)
         instruc_pstim = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2, 
-            units = 'deg', anchor = 'center', fillColor=TARGET_COLOR, lineColor=TARGET_COLOR)
+            units = 'deg', anchor = 'center', fillColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], lineColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], colorSpace = CLR_SPC)
+        instruc_pstim2 = visual.Circle(win, pos = lvf_botright, radius = PERIPHERAL_STIM_SIZE/2, 
+            units = 'deg', anchor = 'center', fillColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], lineColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], colorSpace = CLR_SPC)
 
     # Fix instructions are the same throughout all feature conditions
     fix_instructions_text = visual.TextStim(win=win, text=(
@@ -644,6 +651,8 @@ def show_instructions(feat_cond, attention_cond):
         f"\n\nPress the button as fast as you can every time you see {target_pokemon}.\n\n\n"
         "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
         color='black', colorSpace=CLR_SPC)
+    
+    # Draw instructions components on the screen
     if attention_cond == "FIX":
         fix_instructions_text.draw()
         pokemon_dict[target_pokemon].pos = (0, 0) 
@@ -653,21 +662,31 @@ def show_instructions(feat_cond, attention_cond):
         keys = event.waitKeys(keyList=['space', 'escape'])
         
     elif attention_cond == "COV":
-        base_pos = instruc_pstim.pos
-        while True:
-            t = globalClock.getTime()
-            dy = AMPLITUDE * np.sin(2 * np.pi * FREQUENCY * t)
-            instruc_pstim.pos = base_pos + np.array([0, dy])
+        if feat_cond != 'color': # dots will be moving if feat_cond is not color
+            base_pos = instruc_pstim.pos
+            base_pos2 = instruc_pstim2.pos
+            while True:
+                t = globalClock.getTime()
+                dy = AMPLITUDE * np.sin(2 * np.pi * FREQUENCY * t)
+                instruc_pstim.pos = base_pos + np.array([0, dy])
+                instruc_pstim2.pos = base_pos2 + np.array([0, dy])
+                cov_instructions_text.draw()
+                instruc_pstim.draw()
+                instruc_pstim2.draw()
+                win.flip()
+                
+                keys = event.getKeys(keyList=['space', 'escape'])
+                
+                if 'space' in keys:
+                    break
+                elif 'escape' in keys:
+                    end_task()
+        else:
             cov_instructions_text.draw()
             instruc_pstim.draw()
+            instruc_pstim2.draw()
             win.flip()
-            
-            keys = event.getKeys(keyList=['space', 'escape'])
-            
-            if 'space' in keys:
-                break
-            elif 'escape' in keys:
-                end_task()
+            keys = event.waitKeys(keyList=['space', 'escape'])
 
     thisExp.addData('instructions.end', globalClock.getTime(format='float')) 
 
@@ -799,7 +818,12 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
     phases = [0, 0, np.pi/2, np.pi/2] # half of the circles will start at middle of motion, and half will start at a peak
     random.shuffle(phases)
     for color, angle, pos, phase in zip(pstim_colors, pstim_angles, grid_positions, phases):
-        pstim = visual.Circle(win, name = f"{color}_{angle}", pos = pos, radius = PERIPHERAL_STIM_SIZE/2 , units = 'deg', anchor = 'center', fillColor=color, lineColor=color, colorSpace=CLR_SPC)
+        if color == 'black':
+            pstim = visual.Circle(win, name = f"{color}_{angle}", pos = pos, radius = PERIPHERAL_STIM_SIZE/2 , 
+                units = 'deg', anchor = 'center', fillColor=color, lineColor=color, colorSpace=CLR_SPC)
+        else:
+            pstim = visual.Circle(win, name = f"{color}_{angle}", pos = pos, radius = PERIPHERAL_STIM_SIZE/2 , 
+                units = 'deg', anchor = 'center', fillColor=PERIPHERAL_STIM_COLORS[color], lineColor=PERIPHERAL_STIM_COLORS[color], colorSpace=CLR_SPC)
         pstim_to_draw.append(pstim) # create a list of pstims to draw in this trial
         pstim_info[pstim.name] = {'angle': angle, 'base_pos': pstim.pos, 'phase': phase}
     pstim_onset_recorded_dict = {pstim.name: False for pstim in pstim_to_draw}
@@ -820,16 +844,29 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
     thisExp.addData('trial.start', trial_start)
 
     # Set peripheral stim grid onsets
-    pstim_onsets = [0, 1, 2, 3] # seconds; each peripheral stimuli will be shown one at a time in SEQ condition
     if is_sim_trial:
-        pstim_start_time = random.choice(pstim_onsets) # select random start time for grid in sim trials
+        pstim_start_time = trial_dict['grid_onset'] # start time for entire grid in sim trials
         thisExp.addData('pstim.onset', pstim_start_time)
+    else:
+        pstim_onsets = [0, 1, 2, 3] # seconds; SEQ condition: each peripheral stimuli will be shown one at a time for 1s
+        thisExp.addData('pstim.onset', 0) # first pstim is always at start of trial
     
     # Check whether target is present this trial
-    if attention_cond == 'FIX':
-        target_shown = target_pokemon in rsvp_sequence # T or F
+    if attention_cond == 'FIX': # target shown if target pokemon appears in rsvp during the trial
+        target_shown = target_pokemon in rsvp_sequence 
     elif attention_cond == 'COV':
-        target_shown = TARGET_COLOR in pstim_colors # T or F
+        if feat_cond == 'color': # target shown if target color appears in the grid this trial 
+            target_shown = TARGET_COLOR in pstim_colors
+        elif feat_cond == 'motion': # target shown if black circle closest to fix is moving vertically
+            if vf[0] == 'L':
+                target_shown = TARGET_ANGLE == pstim_angles[3]
+            else:
+                target_shown = TARGET_ANGLE == pstim_angles[2]
+        elif feat_cond == 'color-motion': # target shown if circle closest to fix is moving vertically and is target color
+            if vf[0] == 'L':
+                target_shown = (TARGET_ANGLE == pstim_angles[3] and TARGET_COLOR == pstim_colors[3])
+            else:
+                target_shown = (TARGET_ANGLE == pstim_angles[2] and TARGET_COLOR == pstim_colors[2])
     
     # -------------------- Eyetracker Setup ---------------------------------
     # Esure tracker is ready to receive commands
@@ -898,7 +935,7 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
         if is_sim_trial:
             for pstim in pstim_to_draw:
                 if trial_start + pstim_start_time <= t < trial_start + pstim_start_time + PERIPH_STIM_DURATION:
-                    if attention_cond == "COV" and (pstim.fillColor == TARGET_COLOR).all():
+                    if attention_cond == "COV" and (pstim.fillColor == PERIPHERAL_STIM_COLORS[TARGET_COLOR]):
                         update_target_onset = True
                     angle = pstim_info[pstim.name]['angle']
                     base_pos = pstim_info[pstim.name]['base_pos']
@@ -918,7 +955,7 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
             current_pstim = pstim_to_draw[pstim_idx]
             onset_time = trial_start + pstim_onsets[pstim_idx]
             if onset_time <= t < onset_time + PERIPH_STIM_DURATION:
-                if attention_cond == "COV" and (current_pstim.fillColor == TARGET_COLOR).all():
+                if attention_cond == "COV" and (current_pstim.fillColor == PERIPHERAL_STIM_COLORS[TARGET_COLOR]):
                     update_target_onset = True
                 angle = pstim_info[current_pstim.name]['angle']
                 base_pos = pstim_info[current_pstim.name]['base_pos']
@@ -1061,8 +1098,13 @@ def perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_si
         pokemon_dict[target_pokemon].size = (5,5)
         pokemon_dict[target_pokemon].draw()
     elif attention_cond == 'COV':
-        end_text.text = ("Great job feeding the Pokémon red circles!")
-        target_pstim = visual.Circle(win, name = TARGET_COLOR, pos = (0,-5), radius = 5/2 , units = 'deg', anchor = 'center', fillColor=TARGET_COLOR, lineColor=TARGET_COLOR)
+        if feat_cond == 'motion':
+            target_pstim = visual.Circle(win, name = TARGET_COLOR, pos = (0,-5), radius = 5/2 , units = 'deg', 
+                anchor = 'center', fillColor='black', lineColor='black')
+        else:
+            target_pstim = visual.Circle(win, name = TARGET_COLOR, pos = (0,-5), radius = 5/2 , units = 'deg', anchor = 'center', 
+                fillColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], lineColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], colorSpace = CLR_SPC)
+        end_text.text = (f"Great job feeding the Pokémon those circles!")
         target_pstim.draw()
     end_text.draw()
     win.flip()
@@ -1127,8 +1169,10 @@ else: # Wait for space or escape key
 
 ###### EXPERIMENT BLOCK ################################################################################################################
 
-# Clear the window
+# Clear the window and print targets
 win.flip() 
+print('Target pokemon:', target_pokemon)
+print('Target color:', TARGET_COLOR)
 
 # Step 1: Generate or load the RSVP sequences and peripheral stimulus grids for all runs
 blanks_rsvps = generate_blank_rsvps()
