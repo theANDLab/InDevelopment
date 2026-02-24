@@ -41,6 +41,7 @@ BLOCK_DESIGN = [('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM'),('RVF','
                 ('RVF','SIM'),('LVF','SEQ'),('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM')]
 
 # Stim parameters
+DISTANCE = 51 # cm, pt distance from screen
 PERIPHERAL_STIM_SIZE = 1.25 #DVA; size of each peripheral stimulus (circle)
 POKEMON_SIZE = [1.5, 1.5] # DVA, size of the pokemon during RSVP
 POKEMON_POS = (0,0) # location of rsvp pokemon
@@ -91,7 +92,7 @@ while True:
         sys.exit()
 
     # write edf filename
-    edf_filename = f"{exp_info['Participant ID']}_ET"
+    edf_filename = f"{exp_info['Participant ID']}"
 
     # check if the filename is valid
     allowed_char = ascii_letters + digits + '_'
@@ -113,7 +114,7 @@ time_str = time.strftime("%m_%d_%Y_%H_%M", time.localtime())
 root_dir = os.path.dirname(os.path.abspath(__file__))
 participant_folder = os.path.join(root_dir, 'data', f"{exp_info['Participant ID']}_{exp_name}_Session{exp_info['Session']}_{time_str}")
 os.makedirs(participant_folder, exist_ok=True)
-edf_path = os.path.join(participant_folder, f"{edf_filename}_Session{exp_info['Session']}") # file for eyetracker data
+edf_path = os.path.join(participant_folder, f"{edf_filename}_Session{exp_info['Session']}.EDF") # file for eyetracker data
 
 trials_filename = os.path.join(participant_folder, f"trials_{exp_info['Participant ID']}_Session{exp_info['Session']}")
 rsvp_filename = os.path.join(participant_folder, f"rsvp_{exp_info['Participant ID']}_Session{exp_info['Session']}")
@@ -145,7 +146,7 @@ exp_info['expDate'] = data.getDateStr(format = '%Y-%m-%d %Hh%M.%S.%f %z', fracti
 thisExp.status = STARTED
 
 # Window setup (will need to be adjusted to match the MRI monitor)
-Eizo = monitors.Monitor('Eizo', width = 51.84, distance = 51) # screen width (cm) and distance from the screen (cm)
+Eizo = monitors.Monitor('Eizo', width = 51.84, distance = DISTANCE) # screen width (cm) and distance from the screen (cm)
 Eizo.setSizePix([1920, 1200])
 win = visual.Window(fullscr=True, color=[0.9032,0.8051,0.9655],
             size=Eizo.getSizePix(), screen=1,
@@ -698,6 +699,44 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
     rsvpExp.addData('blank_block.start', block_start)
     rsvpExp.addData('rsvp_seq', rsvp)
     
+    # -------------------- Eyetracker Setup ---------------------------------
+    # Esure tracker is ready to receive commands
+    el_tracker = pylink.getEYELINK()
+    el_tracker.setOfflineMode()
+    el_tracker.sendCommand('clear_screen 0')
+    
+    # Print trial number on eyelink host monitor and output console
+    status_msg = 'Blank block'
+    el_tracker.sendMessage('Blank block')
+
+    # Send status message to host PC
+    el_tracker.sendCommand("record_status_message '%s'" % status_msg)
+
+    # put tracker in idle/offline mode before recording
+    el_tracker.setOfflineMode()
+    
+    # Start recording
+    try:
+        el_tracker.startRecording(1, 1, 1, 1) # arguments: sample_to_file, events_to_file, sample_over_link, event_over_link (1-yes, 0-no)
+    except RuntimeError as error:
+        print("ERROR:", error)
+    
+    # Allocate time for the tracker to cache some samples
+    pylink.pumpDelay(100) 
+    
+    # Get eye used
+    eye_used = get_eye_used(el_tracker)
+    if eye_used is None and not EYETRACKER_OFF:
+        print(f"Could not get eye used on trial {trial_dict['trial_num']}.")
+        
+    # Mark trial if eyetracker disconnected
+    error = el_tracker.isRecording()
+    if error is not pylink.TRIAL_OK:
+        el_tracker.sendMessage('tracker_disconnected')
+        print("Tracker disconnected.")
+        
+    # ------------------------------------------------------------------------
+    
     next_pokemon_onset = block_start
     for current_pokemon in rsvp:
         rsvpExp.addData('feat_cond', feat_cond)
@@ -716,6 +755,10 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
         
         # while loop will draw pokemon and check for keypresses for RSVP_RATE duration
         while globalClock.getTime() < timer_end:
+            if not EYETRACKER_OFF:
+                if not is_gaze_within_bounds(el_tracker, eye_used):
+                    print(f"Fixation broken during blank block.")
+                    rsvpExp.addData('fix.broken', 'fix.broken')
             
             # Add pokemon to drawing queue
             pokemon_dict[current_pokemon].draw()
@@ -768,6 +811,10 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
     # Save block data
     rsvpExp.addData('blank_block.end', globalClock.getTime(format='float'))
     rsvpExp.nextEntry()
+    
+    # Stop recording between trials to decrease size of output file
+    pylink.pumpDelay(100) # add 100 msec to catch final events before stopping
+    el_tracker.stopRecording()
     
     return last_target_onset
 
@@ -1167,12 +1214,17 @@ else: # Wait for space or escape key
     if 'escape' in keys:
         end_task()
 
-###### EXPERIMENT BLOCK ################################################################################################################
+###### PRACTICE BLOCK ################################################################################################################
 
 # Clear the window and print targets
 win.flip() 
 print('Target pokemon:', target_pokemon)
 print('Target color:', TARGET_COLOR)
+
+
+
+
+###### EXPERIMENT BLOCK ################################################################################################################
 
 # Step 1: Generate or load the RSVP sequences and peripheral stimulus grids for all runs
 blanks_rsvps = generate_blank_rsvps()
@@ -1184,6 +1236,21 @@ for feat_cond in FEAT_CONDS:
     all_grids = assign_grids(feat_cond)
     for run in run_list:
         perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets)
+    
+#    # Do a drift check before the next run
+#    while not EYETRACKER_OFF:
+#        # terminate the task if no longer connected to the tracker
+#        if (not el_tracker.isConnected()) or el_tracker.breakPressed():
+#            terminate_task()
+#            
+#        # drift-check and re-do camera setup if ESCAPE is pressed
+#        try:
+#            error = el_tracker.doDriftCorrect(int(scn_width/2.0),int(scn_height/2.0), 1, 1)
+#            # break following a success drift-check
+#            if error is not pylink.ESC_KEY:
+#                break
+#        except:
+#            pass
 
 ###### END EXPERIMENT ##################################################################################################################
 
