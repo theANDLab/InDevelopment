@@ -22,7 +22,7 @@ logging.console.setLevel(logging.ERROR)
 
 ###### PARAMETERS ######################################################################################################################
 
-EYETRACKER_OFF = False # Set to True to run the script without eyetracking
+EYETRACKER_OFF = True # Set to True to run the script without eyetracking
 FEAT_CONDS = ['color', 'motion', 'color-motion'] # which feature conditions to display
 
 # Initialize the global clock and keyboard
@@ -35,10 +35,11 @@ NUM_RUNS = 6 # how many runs in one feature condition; if changed, also need to 
 RUNS_PER_COND = int(NUM_RUNS//len(ATTENTION_CONDS)) # equal number of FIX and COV runs per feature condition (runs 1,2,3 are FIX; 4,5,6 are COV)
 NUM_SIM_BLOCKS = 6 # per run
 NUM_SEQ_BLOCKS = 6 # per run
-NUM_BLANK_BLOCKS = 2 # one before and one after each run
+NUM_BLANK_BLOCKS = 2 # one before and one after each run (including practice run)
 NUM_TRIALS = 3 # per block
 BLOCK_DESIGN = [('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM'),('RVF','SEQ'),('LVF','SIM'),
                 ('RVF','SIM'),('LVF','SEQ'),('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM')]
+PRACTICE_RUNS = 1 # a practice block consists of: blank block, sim block, seq block, blank block
 
 # Stim parameters
 DISTANCE = 51 # cm, pt distance from screen
@@ -114,7 +115,7 @@ time_str = time.strftime("%m_%d_%Y_%H_%M", time.localtime())
 root_dir = os.path.dirname(os.path.abspath(__file__))
 participant_folder = os.path.join(root_dir, 'data', f"{exp_info['Participant ID']}_{exp_name}_Session{exp_info['Session']}_{time_str}")
 os.makedirs(participant_folder, exist_ok=True)
-edf_path = os.path.join(participant_folder, f"{edf_filename}_Session{exp_info['Session']}.EDF") # file for eyetracker data
+edf_path = os.path.join(participant_folder, f"{edf_filename}.EDF") # file for eyetracker data
 
 trials_filename = os.path.join(participant_folder, f"trials_{exp_info['Participant ID']}_Session{exp_info['Session']}")
 rsvp_filename = os.path.join(participant_folder, f"rsvp_{exp_info['Participant ID']}_Session{exp_info['Session']}")
@@ -274,7 +275,7 @@ logging.info(f"Graphics environment set up: {genv}")
 
 ###### FUNCTIONS #######################################################################################################################
 
-def end_task():
+def terminate_task():
     """ Saves data and closes the window."""
     
     thisExp.nextEntry()
@@ -283,9 +284,15 @@ def end_task():
     thisExp.saveAsPickle(trials_filename)
     logging.flush()
     
+    # Clear psychopy window
     if win is not None:
         win.clearAutoDraw()
         win.flip()
+        
+    # Mark experiment as finished
+    thisExp.status = FINISHED
+    print("Experiment ended.")
+    thisExp.abort()
         
     if not EYETRACKER_OFF:
         # Disconnect eyetracker
@@ -314,6 +321,27 @@ def end_task():
     win.close()
     core.quit()
     sys.exit()
+    
+def drift_check():
+    """ Performs a drift check. Allows for recalibration during the exp. """
+    
+    # the doDriftCorrect() function requires target position in integers
+    # the last two arguments:
+    # draw_target (1-default, 0-draw the target then call doDriftCorrect)
+    # allow_setup (1-press ESCAPE to recalibrate, 0-not allowed)
+    while not EYETRACKER_OFF:
+        # terminate the task if no longer connected to the tracker
+        if (not el_tracker.isConnected()) or el_tracker.breakPressed():
+            terminate_task()
+            
+        # drift-check and re-do camera setup if ESCAPE is pressed
+        try:
+            error = el_tracker.doDriftCorrect(int(scn_width/2.0),int(scn_height/2.0), 1, 1)
+            # break following a success drift-check
+            if error is not pylink.ESC_KEY:
+                break
+        except:
+            pass
     
 def get_eye_used(el_tracker):
     """ Gets eye used. Returns 0 for left, 1 for right, None if eye data cannot be collected.t"""
@@ -354,18 +382,18 @@ def is_gaze_within_bounds(el_tracker, eye_used):
     
 def generate_blank_rsvps():
     """" 
-    Returns a dictionary where the keys are the visual set indices and the values are lists 
-    of each blank block's RSVP sequence for that set. (0-indexed)
-    
-    Example:
-        Calling generate_blank_rsvps()[2][0] will return the RSVP sequence (list of pokemon names) 
-        of the first blank block in the third visual set. 
+    Returns two dictionaries, one for practice runs and one for experiment runs, each with x keys. 
+    x is the total number of practice/experiment runs in the experiment.
+    Values for each key are 2 lists of pokemon names that serve as the RSVP stimulus 
+    presentation lists for the blank blocks of that run. 
     """
-    num_unique_blanks = NUM_BLANK_BLOCKS * RUNS_PER_COND # how many unique rsvp sequences to generate for the blank blocks
+    exp_blanks = NUM_BLANK_BLOCKS * RUNS_PER_COND # total number of blank blocks across all experiment runs
+    prac_blanks = NUM_BLANK_BLOCKS * PRACTICE_RUNS # total number of blank blocks across all practice runs
     pokemon_per_blank = int(BLANK_BLOCK_DURATION // RSVP_RATE)
-    all_blank_sequences = []
+    exp_blank_sequences = []
     
-    for blank_block in range(num_unique_blanks):
+    # Create all of the lists of pokemon names for practice blank blocks. 
+    for blank_block in range(prac_blanks):
         # Get times for target occurrences in this block
         target_indices = []
         next_target_idx = random.randint(*POKEMON_TARGET_FREQ)
@@ -382,16 +410,41 @@ def generate_blank_rsvps():
                 if idx > 0:
                     distractor_options = [p for p in distractor_options if p != sequence[-1]] #ensure no back to back pokemon
                 sequence.append(random.choice(distractor_options))
-        all_blank_sequences.append(sequence)
+        prac_blank_sequences.append(sequence)
+    
+    # Create all of the lists of pokemon names for experiment blank blocks. 
+    for blank_block in range(exp_blanks):
+        # Get times for target occurrences in this block
+        target_indices = []
+        next_target_idx = random.randint(*POKEMON_TARGET_FREQ)
+        while next_target_idx < pokemon_per_blank:
+            target_indices.append(next_target_idx)
+            next_target_idx += random.randint(*POKEMON_TARGET_FREQ)
+        # Build sequence, prevent back-to-back repeats
+        sequence = []
+        for idx in range(pokemon_per_blank):
+            if idx in target_indices:
+                sequence.append(target_pokemon)
+            else:
+                distractor_options = [p for p in pokemon_names if p != target_pokemon]
+                if idx > 0:
+                    distractor_options = [p for p in distractor_options if p != sequence[-1]] #ensure no back to back pokemon
+                sequence.append(random.choice(distractor_options))
+        exp_blank_sequences.append(sequence)
 
-    # Assign 2 rsvp sequences to each run
-    all_blank_rsvps = {}
-    seq_idx = 0
+    # Assign 2 rsvp sequences to each stimulus set number
+    prac_blank_rsvps = {}
+    exp_blank_rsvps = {}
+    set_idx = 0
+    for run in range(PRACTICE_RUNS):
+        prac_blank_rsvps[run] = [prac_blank_sequences[set_idx], prac_blank_sequences[set_idx + 1]]
+        set_idx +=NUM_BLANK_BLOCKS
+    set_idx = 0
     for run in range(RUNS_PER_COND):
-        all_blank_rsvps[run] = [all_blank_sequences[seq_idx], all_blank_sequences[seq_idx + 1]]
-        seq_idx += len(ATTENTION_CONDS)
+        exp_blank_rsvps[run] = [exp_blank_sequences[set_idx], exp_blank_sequences[set_idx + 1]]
+        set_idx +=NUM_BLANK_BLOCKS
         
-    return all_blank_rsvps
+    return prac_blank_rsvps, exp_blank_rsvps
     
 def generate_trial_rsvps():
     """ 
@@ -681,7 +734,7 @@ def show_instructions(feat_cond, attention_cond):
                 if 'space' in keys:
                     break
                 elif 'escape' in keys:
-                    end_task()
+                    terminate_task()
         else:
             cov_instructions_text.draw()
             instruc_pstim.draw()
@@ -707,7 +760,7 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
     
     # Print trial number on eyelink host monitor and output console
     status_msg = 'Blank block'
-    el_tracker.sendMessage('Blank block')
+    el_tracker.sendMessage('TRIALID BLANK')
 
     # Send status message to host PC
     el_tracker.sendCommand("record_status_message '%s'" % status_msg)
@@ -784,7 +837,7 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
             # Analyze key presses
             for key in keys:
                 if key.name == 'escape':
-                    end_task()
+                    terminate_task()
                     
                 elif key.name == RESPONSE_KEY:
                     press_time = key.rt # relative to globalClock
@@ -812,6 +865,21 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
     rsvpExp.addData('blank_block.end', globalClock.getTime(format='float'))
     rsvpExp.nextEntry()
     
+    # Send trial data to EDF file
+    el_tracker.sendMessage('!V TRIAL_VAR condition %s' % trial['cue_condition'])
+    try:
+        el_tracker.sendMessage('!V TRIAL_VAR RT %d' % int(rt))
+    except (TypeError, ValueError):
+        el_tracker.sendMessage('!V TRIAL_VAR RT -1') # If no response, RT is set to -1 in eyetracker data
+    
+    el_tracker.sendMessage('!V CLEAR 128 128 128')
+    
+    # Stop recording between trials to decrease size of output file
+    pylink.pumpDelay(100) # add 100 msec to catch final events before stopping
+    el_tracker.stopRecording()
+    
+    # Send trial result message to mark the end of the trial
+    el_tracker.sendMessage('TRIAL_RESULT %d' % pylink.TRIAL_OK)
     # Stop recording between trials to decrease size of output file
     pylink.pumpDelay(100) # add 100 msec to catch final events before stopping
     el_tracker.stopRecording()
@@ -1067,7 +1135,7 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
         keys = kb.getKeys(keyList=[RESPONSE_KEY, 'escape'], waitRelease=False, clear=True)
         for key in keys:
             if key.name == 'escape':
-                end_task()
+                terminate_task()
             elif key.name == RESPONSE_KEY:
                 press_time = key.rt
                 rsvpExp.addData('press_time', press_time)
@@ -1104,6 +1172,8 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
 
     return last_target_onset
 
+def practice_run(blanks_rsvps):
+
 def perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets):
     
     visual_set = (run - 1) % 3 # maps the run number to the rsvp and grid visuals
@@ -1118,6 +1188,9 @@ def perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_si
     # Extract visuals for this run
     trial_dicts = create_trial_dicts(visual_set, all_grids, trial_rsvps, run_sim_onsets) # create trial dicts for this run
     blank_block_rsvps = blanks_rsvps[visual_set] # 2 RSVP lists for the blank blocks in this run
+    
+    # Do a drift check before the blank block
+    drift_check()
     
     # Run blank block before trials
     thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
@@ -1162,7 +1235,7 @@ def perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_si
     
     keys = event.waitKeys(keyList=['space', 'escape'])
     if 'escape' in keys:
-        end_task()
+        terminate_task()
   
 ###### WELCOME SCREEN ##################################################################################################################
 
@@ -1212,7 +1285,7 @@ if not EYETRACKER_OFF:
 else: # Wait for space or escape key
     keys = event.waitKeys(keyList=['space', 'escape'])
     if 'escape' in keys:
-        end_task()
+        terminate_task()
 
 ###### PRACTICE BLOCK ################################################################################################################
 
@@ -1221,36 +1294,21 @@ win.flip()
 print('Target pokemon:', target_pokemon)
 print('Target color:', TARGET_COLOR)
 
+# Generate or load the RSVP sequences and peripheral stimulus grids for all runs
+prac_blank_rsvps, exp_blank_rsvps = generate_blank_rsvps()
+trial_rsvps = generate_trial_rsvps()
+run_sim_onsets = generate_sim_onsets()
 
+# Perform practice runs 
 
 
 ###### EXPERIMENT BLOCK ################################################################################################################
 
-# Step 1: Generate or load the RSVP sequences and peripheral stimulus grids for all runs
-blanks_rsvps = generate_blank_rsvps()
-trial_rsvps = generate_trial_rsvps()
-run_sim_onsets = generate_sim_onsets()
-
-# Step 2: Perform 3 FIX runs of each feature condition
+# Perform 3 FIX runs of each feature condition
 for feat_cond in FEAT_CONDS:
     all_grids = assign_grids(feat_cond)
     for run in run_list:
-        perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets)
-    
-#    # Do a drift check before the next run
-#    while not EYETRACKER_OFF:
-#        # terminate the task if no longer connected to the tracker
-#        if (not el_tracker.isConnected()) or el_tracker.breakPressed():
-#            terminate_task()
-#            
-#        # drift-check and re-do camera setup if ESCAPE is pressed
-#        try:
-#            error = el_tracker.doDriftCorrect(int(scn_width/2.0),int(scn_height/2.0), 1, 1)
-#            # break following a success drift-check
-#            if error is not pylink.ESC_KEY:
-#                break
-#        except:
-#            pass
+        perform_one_run(feat_cond, run, exp_blank_rsvps, all_grids, trial_rsvps, run_sim_onsets)
 
 ###### END EXPERIMENT ##################################################################################################################
 
@@ -1261,4 +1319,4 @@ thanks_text.draw()
 win.flip()
 # Close experiment window and save data when space is pressed
 keys = event.waitKeys(keyList=['space'])
-end_task() 
+terminate_task() 
