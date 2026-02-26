@@ -42,7 +42,7 @@ BLOCK_DESIGN = [('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM'),('RVF','
 PRACTICE_RUNS = 1 # a practice block consists of: blank block, sim block, seq block, blank block
 
 # Stim parameters
-DISTANCE = 51 # cm, pt distance from screen
+DISTANCE = 60 # cm, pt distance from screen
 PERIPHERAL_STIM_SIZE = 1.25 #DVA; size of each peripheral stimulus (circle)
 POKEMON_SIZE = [1.5, 1.5] # DVA, size of the pokemon during RSVP
 POKEMON_POS = (0,0) # location of rsvp pokemon
@@ -57,7 +57,7 @@ AMPLITUDE = 0.75 # half of the stim's total motion in DVA
 ANGLES = [0, 30, 60, 90, 120, 150] # all possible angles of motion
 TARGET_ANGLE = 90 # vertical motion
 TARGET_COLOR = 'red' # (0.8027, 0.4268, 0.6013)
-GAZE_BOUND = 2 # if gaze shifts more than this from fixation point, flag the trial
+GAZE_BOUND = 3 # if gaze shifts more than this from fixation point, flag the trial
 
 # Timing
 BLANK_BLOCK_DURATION = 16 # seconds
@@ -390,6 +390,7 @@ def generate_blank_rsvps():
     exp_blanks = NUM_BLANK_BLOCKS * RUNS_PER_COND # total number of blank blocks across all experiment runs
     prac_blanks = NUM_BLANK_BLOCKS * PRACTICE_RUNS # total number of blank blocks across all practice runs
     pokemon_per_blank = int(BLANK_BLOCK_DURATION // RSVP_RATE)
+    prac_blank_sequences = []
     exp_blank_sequences = []
     
     # Create all of the lists of pokemon names for practice blank blocks. 
@@ -670,7 +671,7 @@ def show_instructions(feat_cond, attention_cond):
                 f"The Pokémon like to eat {TARGET_COLOR} circles like these! Can you help feed them?\n\n\n"
                 f"Press the button as fast as you can every time you see a {TARGET_COLOR} circle.\n\n\n"
                 "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
-            color='black', colorSpace=CLR_SPC)
+                color='black', colorSpace=CLR_SPC)
         instruc_pstim = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2, 
             units = 'deg', anchor = 'center', fillColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], lineColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], colorSpace = CLR_SPC)
         instruc_pstim2 = visual.Circle(win, pos = lvf_botright, radius = PERIPHERAL_STIM_SIZE/2, 
@@ -681,7 +682,7 @@ def show_instructions(feat_cond, attention_cond):
                 f"The Pokémon like to eat black circles that move up and down like this! Can you help feed them?\n\n\n"
                 f"Press the button as fast as you can every time you see a black circle moving up and down.\n\n\n"
                 "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
-            color='black', colorSpace=CLR_SPC)
+                color='black', colorSpace=CLR_SPC)
         instruc_pstim = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2, 
             units = 'deg', anchor = 'center', fillColor='black', lineColor='black')
         instruc_pstim2 = visual.Circle(win, pos = lvf_botright, radius = PERIPHERAL_STIM_SIZE/2, 
@@ -692,7 +693,7 @@ def show_instructions(feat_cond, attention_cond):
                 f"The Pokémon like to eat {TARGET_COLOR} circles that move up and down like this! Can you help feed them?\n\n\n"
                 f"Press the button as fast as you can every time you see a {TARGET_COLOR} circle movinf up and down.\n\n\n"
                 "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
-            color='black', colorSpace=CLR_SPC)
+                color='black', colorSpace=CLR_SPC)
         instruc_pstim = visual.Circle(win, pos = rvf_botleft, radius = PERIPHERAL_STIM_SIZE/2, 
             units = 'deg', anchor = 'center', fillColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], lineColor=PERIPHERAL_STIM_COLORS[TARGET_COLOR], colorSpace = CLR_SPC)
         instruc_pstim2 = visual.Circle(win, pos = lvf_botright, radius = PERIPHERAL_STIM_SIZE/2, 
@@ -744,7 +745,7 @@ def show_instructions(feat_cond, attention_cond):
 
     thisExp.addData('instructions.end', globalClock.getTime(format='float')) 
 
-def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_onset): 
+def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_onset, practice=False): 
     """ Function to run a single blank block. """
     
     # Add data to data file
@@ -793,7 +794,10 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
     next_pokemon_onset = block_start
     for current_pokemon in rsvp:
         rsvpExp.addData('feat_cond', feat_cond)
-        rsvpExp.addData('run', run_num)
+        if practice:
+            rsvpExp.addData('run', f'practice{run_num}')
+        else:
+            rsvpExp.addData('run', f'exp{run_num}')
         rsvpExp.addData('block', 'blank')
         rsvpExp.addData('attention_cond', attn_cond)
         hit = 0
@@ -866,11 +870,6 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
     rsvpExp.nextEntry()
     
     # Send trial data to EDF file
-    el_tracker.sendMessage('!V TRIAL_VAR condition %s' % trial['cue_condition'])
-    try:
-        el_tracker.sendMessage('!V TRIAL_VAR RT %d' % int(rt))
-    except (TypeError, ValueError):
-        el_tracker.sendMessage('!V TRIAL_VAR RT -1') # If no response, RT is set to -1 in eyetracker data
     
     el_tracker.sendMessage('!V CLEAR 128 128 128')
     
@@ -1172,18 +1171,47 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset):
 
     return last_target_onset
 
-def practice_run(blanks_rsvps):
+def practice_run(run, blanks_rsvps, feat_cond):
 
-def perform_one_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets):
+    attention_cond = 'FIX' if run <= RUNS_PER_COND else 'COV'
+        
+    # Reset last target onset
+    last_target_onset = None
+    
+    # Extract visuals for this run
+    blank_block_rsvps = blanks_rsvps[run] # 2 RSVP lists for the blank blocks in this run
+    
+    # Do a drift check before the blank block
+    drift_check()
+    
+    # Run blank block before trials
+    thisExp.addData('prac_blank_block.start', globalClock.getTime(format='float'))
+    last_target_onset = run_blank_block(blank_block_rsvps[0], run+1, 1, attention_cond, feat_cond, last_target_onset, True)
+    thisExp.addData('prac_blank_block.end', globalClock.getTime(format='float'))
+    thisExp.nextEntry()
+
+    # Run 1 SIM block and 1 SEQ block
+
+    
+    # Run blank block after trials
+    thisExp.addData('prac_blank_block.start', globalClock.getTime(format='float'))
+    last_target_onset = run_blank_block(blank_block_rsvps[1], run+1, 2, attention_cond, feat_cond, last_target_onset, True)
+    thisExp.addData('prac_blank_block.end', globalClock.getTime(format='float'))
+    thisExp.nextEntry()
+    
+    end_prac_text = visual.TextStim(win=win, text="Great job!", font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
+        color='black', colorSpace=CLR_SPC)
+    end_prac_text.draw()
+    win.flip()
+    event.waitKeys(keyList=['space'])
+
+def experiment_run(feat_cond, run, blanks_rsvps, all_grids, trial_rsvps, run_sim_onsets):
     
     visual_set = (run - 1) % 3 # maps the run number to the rsvp and grid visuals
     attention_cond = 'FIX' if run <= RUNS_PER_COND else 'COV'
         
     # Reset last target onset
     last_target_onset = None
-    
-    # Show instructions
-    show_instructions(feat_cond, attention_cond)
     
     # Extract visuals for this run
     trial_dicts = create_trial_dicts(visual_set, all_grids, trial_rsvps, run_sim_onsets) # create trial dicts for this run
@@ -1287,7 +1315,7 @@ else: # Wait for space or escape key
     if 'escape' in keys:
         terminate_task()
 
-###### PRACTICE BLOCK ################################################################################################################
+###### EXPERIMENT #####################################################################################################################
 
 # Clear the window and print targets
 win.flip() 
@@ -1299,16 +1327,41 @@ prac_blank_rsvps, exp_blank_rsvps = generate_blank_rsvps()
 trial_rsvps = generate_trial_rsvps()
 run_sim_onsets = generate_sim_onsets()
 
-# Perform practice runs 
-
-
-###### EXPERIMENT BLOCK ################################################################################################################
-
-# Perform 3 FIX runs of each feature condition
+# Perform FIX runs of each feature condition
 for feat_cond in FEAT_CONDS:
     all_grids = assign_grids(feat_cond)
+    for run in range(PRACTICE_RUNS):
+        attention_cond = 'FIX'
+        show_instructions(feat_cond, attention_cond)
+        practice_run(run, prac_blank_rsvps, feat_cond)
+
+    if attention_cond == 'FIX':
+        end_prac_text = visual.TextStim(win=win, text=(
+            f"Great job finding {target_pokemon}!\n\n\n\n\n\n"
+            f"The Pokémon are excited, so they are going to move faster now!\n\n\n"
+            f"Remember to press the button every time you see {target_pokemon}.\n\n\n"
+            "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
+            color='black', colorSpace=CLR_SPC)
+        pokemon_dict[target_pokemon].pos = (0, 0) 
+        pokemon_dict[target_pokemon].size = [1.5, 1.5]
+        pokemon_dict[target_pokemon].draw()
+        end_prac_text.draw()
+        win.flip()
+    elif attention_cond == 'COV':
+        end_prac_text = visual.TextStim(win=win, text=(
+            f"Great job finding the {target_color} circles!\n\n\n\n\n\n"
+            f"The Pokémon are excited, so they are going to move faster now!\n\n\n"
+            f"Remember to press the button every time you see the {target_color} circles.\n\n\n"
+            "Ready to start playing?"), font='Arial', units='deg', pos=(0, 0), height=1, wrapWidth=1400, 
+            color='black', colorSpace=CLR_SPC)
+        end_prac_text.draw()
+        win.flip()
+    keys = event.waitKeys(keyList=['space', 'escape'])
+    if 'escape' in keys:
+        terminate_task()
+    
     for run in run_list:
-        perform_one_run(feat_cond, run, exp_blank_rsvps, all_grids, trial_rsvps, run_sim_onsets)
+        experiment_run(feat_cond, run, exp_blank_rsvps, all_grids, trial_rsvps, run_sim_onsets)
 
 ###### END EXPERIMENT ##################################################################################################################
 
