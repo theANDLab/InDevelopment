@@ -124,7 +124,7 @@ print('#########################################################################
 print(f'Performing runs {run_list} of {feat_cond} condition.')
 print('Target pokemon:', target_pokemon)
 print('Target color:', TARGET_COLOR)
-print('\n###############################################################################')
+print('\n###############################################################################\n')
 
 # Establish data output directory and output file column order
 time_str = time.strftime("%m_%d_%Y", time.localtime())
@@ -176,8 +176,9 @@ win = visual.Window(fullscr=True, color=[0.9032,0.8051,0.9655],
 
 # Get monitor's refresh rate
 frame_rate = win.getActualFrameRate()
-if frame_rate is not None:
-    frame_dur = 1.0 / frame_rate
+if frame_rate is None:
+    frame_rate = 60.0 # fallback to expected frame rate
+    print("Could not measure frame rate, defaulting to 60Hz")
 exp_info['frameRate'] = frame_rate
 
 # Load Pokémon images from folder
@@ -663,7 +664,7 @@ def assign_grids(feat_cond):
             data = json.load(f)
         prac_trial_grids = {int(k): v for k, v in data['prac_trial_grids'].items()}
         exp_trial_grids = {int(k): v for k, v in data['exp_trial_grids'].items()}
-        print(f"Loaded existing grids from {filename}")
+        print(f"Loaded existing grids from {filename}\n")
         return prac_trial_grids, exp_trial_grids
 
     trials_per_run = NUM_TRIALS * (NUM_SEQ_BLOCKS + NUM_SIM_BLOCKS)
@@ -766,7 +767,8 @@ def assign_grids(feat_cond):
     }
     with open(filename, 'w') as f:
         json.dump(data, f)
-    print(f"Generated and saved grids to {filename}")
+    print(f"Generated and saved grids to {filename}\n")
+    print('###############################################################################\n')
 
     return prac_trial_grids, exp_trial_grids
 
@@ -908,6 +910,7 @@ def show_feedback(feat_cond, attention_cond):
         end_text.text = (f"Great job finding {target_pokemon}!")
         pokemon_dict[target_pokemon].pos = (0, -5) 
         pokemon_dict[target_pokemon].size = (5,5)
+        end_text.draw()
         pokemon_dict[target_pokemon].draw()
         win.flip()
         keys = event.waitKeys(keyList=['space', 'escape'])
@@ -1341,7 +1344,7 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset, pra
                     pstim_offset_recorded_dict[current_pstim.name] = True
                     
             if record_rsvp_onset:
-                rsvpExp.addData('run', run)
+                rsvpExp.addData('run', f'prac{run}' if practice else f'exp{run}')
                 rsvpExp.addData('block', trial_dict['presentation_cond'])
                 rsvpExp.addData('trial', trial_dict['trial_num'])
                 rsvpExp.addData('attention_cond', attention_cond)
