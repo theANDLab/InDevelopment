@@ -973,50 +973,58 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
     rsvpExp.addData('blank_block.start', block_start)
     rsvpExp.addData('rsvp_seq', rsvp)
     
-    # -------------------- Eyetracker Setup ---------------------------------
-    # Esure tracker is ready to receive commands
-    el_tracker = pylink.getEYELINK()
-    el_tracker.setOfflineMode()
-    el_tracker.sendCommand('clear_screen 0')
-    
-    # Print trial number on eyelink host monitor and output console
-    status_msg = 'Blank block'
-    el_tracker.sendMessage('TRIALID BLANK')
-
-    # Send status message to host PC
-    el_tracker.sendCommand("record_status_message '%s'" % status_msg)
-
-    # put tracker in idle/offline mode before recording
-    el_tracker.setOfflineMode()
-    
-    # Start recording
-    try:
-        el_tracker.startRecording(1, 1, 1, 1) # arguments: sample_to_file, events_to_file, sample_over_link, event_over_link (1-yes, 0-no)
-    except RuntimeError as error:
-        print("ERROR:", error)
-    
-    # Allocate time for the tracker to cache some samples
-    pylink.pumpDelay(100) 
-    
-    # Get eye used
-    eye_used = get_eye_used(el_tracker)
-    if eye_used is None and not EYETRACKER_OFF:
-        print(f"Could not get eye used on trial {trial_dict['trial_num']}.")
+    if blank_num ==1:
+        # -------------------- Eyetracker Setup ---------------------------------
+        # Esure tracker is ready to receive commands
+        el_tracker = pylink.getEYELINK()
+        el_tracker.setOfflineMode()
+        el_tracker.sendCommand('clear_screen 0')
         
-    # Mark trial if eyetracker disconnected
-    error = el_tracker.isRecording()
-    if error is not pylink.TRIAL_OK:
-        el_tracker.sendMessage('tracker_disconnected')
-        print("Tracker disconnected.")
+        # Mark start with "TRIAL ID" message
+        el_tracker.sendMessage('blank_block_start')
+        el_tracker.sendMessage('TRIALID %d' % blank_num)
+
+        # Show blank block number on host pc
+        status_msg = 'BLANK BLOCK %d' % blank_num
+        el_tracker.sendCommand("record_status_message '%s'" % status_msg)
         
-    # ------------------------------------------------------------------------
+        # Drift check before start of run
+        drift_check()
+
+        # put tracker in idle/offline mode before recording
+        el_tracker.setOfflineMode()
+        
+        # Start recording
+        try:
+            el_tracker.startRecording(1, 1, 1, 1) # arguments: sample_to_file, events_to_file, sample_over_link, event_over_link (1-yes, 0-no)
+        except RuntimeError as error:
+            print("ERROR:", error)
+        
+        # Allocate time for the tracker to cache some samples
+        pylink.pumpDelay(100) 
+        
+        # Get eye used
+        eye_used = get_eye_used(el_tracker)
+        if eye_used is None and not EYETRACKER_OFF:
+            print(f"Could not get eye used on trial {trial_dict['trial_num']}.")
+            
+        # Mark trial if eyetracker disconnected
+        error = el_tracker.isRecording()
+        if error is not pylink.TRIAL_OK:
+            el_tracker.sendMessage('tracker_disconnected')
+            print("Tracker disconnected.")
+            
+        # ------------------------------------------------------------------------
     
+    # Calculate frames
     if practice:
         RATE = PRAC_RSVP_RATE
     else:
         RATE = RSVP_RATE
+    frames_per_pokemon = round(RATE*frame_rate)
         
     next_pokemon_onset = block_start
+    
     for current_pokemon in rsvp:
         rsvpExp.addData('feat_cond', feat_cond)
         if practice:
@@ -1036,7 +1044,7 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
         timer_end = next_pokemon_onset + RATE
         
         # while loop will draw pokemon and check for keypresses for RATE duration
-        while globalClock.getTime() < timer_end:
+        for frameN in range(frames_per_pokemon):
             if not EYETRACKER_OFF:
                 if not is_gaze_within_bounds(el_tracker, eye_used):
                     print(f"Fixation broken during blank block.")
@@ -1046,7 +1054,7 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
             pokemon_dict[current_pokemon].draw()
             
             # Capture pokemon onset once during first window flip
-            if pokemon_onset is None:
+            if frameN == 0:
                 win.callOnFlip(kb.clearEvents)
                 def on_flip():
                     nonlocal pokemon_onset, last_target_onset
@@ -1094,23 +1102,26 @@ def run_blank_block(rsvp, run_num, blank_num, attn_cond, feat_cond, last_target_
     rsvpExp.addData('blank_block.end', globalClock.getTime(format='float'))
     rsvpExp.nextEntry()
     
-    # Send trial data to EDF file
-    
-    el_tracker.sendMessage('!V CLEAR 128 128 128')
-    
-    # Stop recording between trials to decrease size of output file
-    pylink.pumpDelay(100) # add 100 msec to catch final events before stopping
-    el_tracker.stopRecording()
-    
-    # Send trial result message to mark the end of the trial
-    el_tracker.sendMessage('TRIAL_RESULT %d' % pylink.TRIAL_OK)
-    # Stop recording between trials to decrease size of output file
-    pylink.pumpDelay(100) # add 100 msec to catch final events before stopping
-    el_tracker.stopRecording()
+    if blank_num ==2:
+        # -------------------- Stop Recording ---------------------------------
+        el_tracker = pylink.getEYELINK()
+        el_tracker.sendMessage('blank_block_end')
+        
+        # Clear eyetracker monitor screen
+        el_tracker.sendMessage('!V CLEAR 128 128 128')
+        
+        # Stop recording after blank block
+        pylink.pumpDelay(100) # add 100ms to catch final events before stopping
+        el_tracker.stopRecording()
+        
+        # Send 'TRIAL_RESULT' message to mark end
+        el_tracker.sendMessage('TRIAL_RESULT %d' % pylink.TRIAL_OK)
+
+        # ------------------------------------------------------------------------
     
     return last_target_onset
 
-def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset, practice = False):    
+def run_trial(blanks_rsvps, feat_cond, run, trial_dict, attention_cond, last_target_onset, practice = False):    
     """
     Function to run a single trial.
 
@@ -1145,6 +1156,8 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset, pra
         RATE = PRAC_RSVP_RATE
     else:
         RATE = RSVP_RATE
+    frames_per_pokemon = round(RATE*frame_rate) + 1 # add 1 frame to correct missing frame 
+    total_trial_frames = round(TRIAL_DURATION*frame_rate)
 
     # Extract peripheral stim locations
     vf = trial_dict['visual_field']
@@ -1210,57 +1223,65 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset, pra
                 target_shown = (TARGET_ANGLE == pstim_angles[3] and TARGET_COLOR == pstim_colors[3])
             else:
                 target_shown = (TARGET_ANGLE == pstim_angles[2] and TARGET_COLOR == pstim_colors[2])
+                
+    # Blank block if this is the first trial 
+    if trial_dict['trial_num'] == 1:
+        thisExp.addData('prac_blank_block.start', globalClock.getTime(format='float'))
+        last_target_onset = run_blank_block(blanks_rsvps[0], run, 1, attention_cond, feat_cond, last_target_onset, practice)
+        thisExp.addData('prac_blank_block.end', globalClock.getTime(format='float'))
+        thisExp.nextEntry()
     
-    # -------------------- Eyetracker Setup ---------------------------------
-    # Esure tracker is ready to receive commands
-    el_tracker = pylink.getEYELINK()
-    el_tracker.setOfflineMode()
-    el_tracker.sendCommand('clear_screen 0')
+#    # -------------------- Eyetracker Setup ---------------------------------
+#    # Esure tracker is ready to receive commands
+#    el_tracker = pylink.getEYELINK()
+#    el_tracker.setOfflineMode()
+#    el_tracker.sendCommand('clear_screen 0')
+#    
+#    # Send 'TRIALID' message to mark start of trial
+#    el_tracker.sendMessage('TRIALID %d' % trial_dict['trial_num'])
+#
+#    # Show trial number on host pc
+#    status_msg = 'TRIAL %d, RUN %s' % (trial_dict['trial_num'], run)
+#    el_tracker.sendCommand("record_status_message '%s'" % status_msg)
+#
+#    # put tracker in idle/offline mode before recording
+#    el_tracker.setOfflineMode()
+#    
+#    # Start recording
+#    try:
+#        el_tracker.startRecording(1, 1, 1, 1) # arguments: sample_to_file, events_to_file, sample_over_link, event_over_link (1-yes, 0-no)
+#    except RuntimeError as error:
+#        print("ERROR:", error)
+#    
+#    # Allocate time for the tracker to cache some samples
+#    pylink.pumpDelay(100) 
+#    
+#    # Get eye used
+#    eye_used = get_eye_used(el_tracker)
+#    if eye_used is None and not EYETRACKER_OFF:
+#        print(f"Could not get eye used on trial {trial_dict['trial_num']}.")
+#        
+#    # Mark trial if eyetracker disconnected
+#    error = el_tracker.isRecording()
+#    if error is not pylink.TRIAL_OK:
+#        el_tracker.sendMessage('tracker_disconnected')
+#        print("Tracker disconnected.")
+#        
+#    # ------------------------------------------------------------------------
     
-    # Print trial number on eyelink host monitor and output console
-    status_msg = 'TRIAL number %d' % trial_dict['trial_num']
-    el_tracker.sendMessage('TRIALID %d' % trial_dict['trial_num'])
-
-    # Send status message to host PC
-    el_tracker.sendCommand("record_status_message '%s'" % status_msg)
-
-    # put tracker in idle/offline mode before recording
-    el_tracker.setOfflineMode()
-    
-    # Start recording
-    try:
-        el_tracker.startRecording(1, 1, 1, 1) # arguments: sample_to_file, events_to_file, sample_over_link, event_over_link (1-yes, 0-no)
-    except RuntimeError as error:
-        print("ERROR:", error)
-    
-    # Allocate time for the tracker to cache some samples
-    pylink.pumpDelay(100) 
-    
-    # Get eye used
-    eye_used = get_eye_used(el_tracker)
-    if eye_used is None and not EYETRACKER_OFF:
-        print(f"Could not get eye used on trial {trial_dict['trial_num']}.")
-        
-    # Mark trial if eyetracker disconnected
-    error = el_tracker.isRecording()
-    if error is not pylink.TRIAL_OK:
-        el_tracker.sendMessage('tracker_disconnected')
-        print("Tracker disconnected.")
-        
-    # ------------------------------------------------------------------------
-    # Start the trial loop
-    while globalClock.getTime() < trial_end:
+    # Start the trial loop (start at frame -1 to ensure first pokemon has time to load)
+    for frameN in range(-1, total_trial_frames):
         update_target_onset = False
         record_rsvp_onset = False
         t = globalClock.getTime()
         
         # RSVP stream presentation
-        if rsvp_idx < len(rsvp_sequence) and t >= next_pokemon_onset:
+        if rsvp_idx < len(rsvp_sequence) and frameN % frames_per_pokemon == 0:
             record_rsvp_onset = True
+            if frameN > 0:
+                rsvpExp.nextEntry()
             current_pokemon = pokemon_dict[rsvp_sequence[rsvp_idx]]
             rsvp_idx +=1
-            next_pokemon_onset += RATE
-            rsvpExp.nextEntry()
             # Gaze tracking until end of trial
             if not EYETRACKER_OFF:
                 if not is_gaze_within_bounds(el_tracker, eye_used):
@@ -1392,11 +1413,39 @@ def run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset, pra
     thisExp.addData('keypresses', len(press_times)) # how many times pt responded in the trial
     thisExp.addData('trial.end', t)
         
-
     # Print trial data
     print(f"Trial block: {trial_dict['block_num']}, Trial: {trial_dict['trial_num']}, Target shown: {target_shown}, Keypresses: {len(press_times)}")
 
     thisExp.nextEntry()
+    
+#    # -------------------- Stop Recording ---------------------------------
+#
+#    # Clear eyetracker monitor screen
+#    el_tracker.sendMessage('!V CLEAR 128 128 128')
+#    
+#    # Stop recording between trials
+#    pylink.pumpDelay(100) # add 100ms to catch final events before stopping
+#    el_tracker.stopRecording()
+#    
+#    # Send trial data to EDF file
+#    el_tracker.sendMessage('!V TRIAL_VAR feature_cond %s' % feat_cond)
+#    el_tracker.sendMessage('!V TRIAL_VAR attention_cond %s' % attention_cond)
+#    el_tracker.sendMessage('!V TRIAL_VAR run %s' % run)
+#    el_tracker.sendMessage('!V TRIAL_VAR presentation_cond %s' % trial_dict['presentation_cond'])
+#    el_tracker.sendMessage('!V TRIAL_VAR trial %s' % trial_dict['trial_num'])
+    
+#    # Send 'TRIAL_RESULT' message to mark end of trial
+#    el_tracker.sendMessage('TRIAL_RESULT %d' % pylink.TRIAL_OK)
+#
+#    # ------------------------------------------------------------------------
+    
+    # Blank block if this is the last trial
+    last_trial = NUM_TRIALS * (PRAC_SEQ_BLOCKS + PRAC_SIM_BLOCKS) if practice else NUM_TRIALS * (NUM_SEQ_BLOCKS + NUM_SIM_BLOCKS)
+    if trial_dict['trial_num'] == last_trial:
+        thisExp.addData('prac_blank_block.start', globalClock.getTime(format='float'))
+        last_target_onset = run_blank_block(blanks_rsvps[1], run, 2, attention_cond, feat_cond, last_target_onset, practice)
+        thisExp.addData('prac_blank_block.end', globalClock.getTime(format='float'))
+        thisExp.nextEntry()
 
     return last_target_onset
 
@@ -1407,26 +1456,23 @@ def practice_run(feat_cond, attention_cond, run, blanks_rsvps, trial_grids, tria
     
     # Extract visuals for this run
     trial_dicts = create_trial_dicts(trial_grids, trial_rsvps, sim_onsets, True) # create trial dicts for this run
-    
-    # Do a drift check before the blank block
-    drift_check()
-    
+        
     # Run blank block before trials
-    thisExp.addData('prac_blank_block.start', globalClock.getTime(format='float'))
-    last_target_onset = run_blank_block(blanks_rsvps[0], run, 1, attention_cond, feat_cond, last_target_onset, True)
-    thisExp.addData('prac_blank_block.end', globalClock.getTime(format='float'))
-    thisExp.nextEntry()
+#    thisExp.addData('prac_blank_block.start', globalClock.getTime(format='float'))
+#    last_target_onset = run_blank_block(blanks_rsvps[0], run, 1, attention_cond, feat_cond, last_target_onset, True)
+#    thisExp.addData('prac_blank_block.end', globalClock.getTime(format='float'))
+#    thisExp.nextEntry()
 
     # Run 1 SIM block and 1 SEQ block
     for trial_dict in trial_dicts:
-        last_target_onset = run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset, True)
+        last_target_onset = run_trial(blanks_rsvps, feat_cond, run, trial_dict, attention_cond, last_target_onset, True)
     rsvpExp.nextEntry()
     
-    # Run blank block after trials
-    thisExp.addData('prac_blank_block.start', globalClock.getTime(format='float'))
-    last_target_onset = run_blank_block(blanks_rsvps[1], run, 2, attention_cond, feat_cond, last_target_onset, True)
-    thisExp.addData('prac_blank_block.end', globalClock.getTime(format='float'))
-    thisExp.nextEntry()
+#    # Run blank block after trials
+#    thisExp.addData('prac_blank_block.start', globalClock.getTime(format='float'))
+#    last_target_onset = run_blank_block(blanks_rsvps[1], run, 2, attention_cond, feat_cond, last_target_onset, True)
+#    thisExp.addData('prac_blank_block.end', globalClock.getTime(format='float'))
+#    thisExp.nextEntry()
     
     # Feedback screen
     show_feedback(feat_cond, attention_cond)
@@ -1438,26 +1484,23 @@ def experiment_run(feat_cond, attention_cond, run, blanks_rsvps, trial_grids, tr
     
     # Extract visuals for this run
     trial_dicts = create_trial_dicts(trial_grids, trial_rsvps, sim_onsets) # create trial dicts for this run
-    
-    # Do a drift check before the blank block
-    drift_check()
 
-    # Run blank block before trials
-    thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
-    last_target_onset = run_blank_block(blanks_rsvps[0], run, 1, attention_cond, feat_cond, last_target_onset)
-    thisExp.addData('blank_block.end', globalClock.getTime(format='float'))
-    thisExp.nextEntry()
+#    # Run blank block before trials
+#    thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
+#    last_target_onset = run_blank_block(blanks_rsvps[0], run, 1, attention_cond, feat_cond, last_target_onset)
+#    thisExp.addData('blank_block.end', globalClock.getTime(format='float'))
+#    thisExp.nextEntry()
 
     # Run all trials using trial dictionaries, updating accuracy
     for trial_dict in trial_dicts:
-        last_target_onset = run_trial(feat_cond, run, trial_dict, attention_cond, last_target_onset)
+        last_target_onset = run_trial(blanks_rsvps, feat_cond, run, trial_dict, attention_cond, last_target_onset)
     rsvpExp.nextEntry()
     
-    # Run blank block after trials
-    thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
-    last_target_onset = run_blank_block(blanks_rsvps[1], run, 2, attention_cond, feat_cond, last_target_onset)
-    thisExp.addData('blank_block.end', globalClock.getTime(format='float'))
-    thisExp.nextEntry()
+#    # Run blank block after trials
+#    thisExp.addData('blank_block.start', globalClock.getTime(format='float'))
+#    last_target_onset = run_blank_block(blanks_rsvps[1], run, 2, attention_cond, feat_cond, last_target_onset)
+#    thisExp.addData('blank_block.end', globalClock.getTime(format='float'))
+#    thisExp.nextEntry()
     
     # Feedback screen
     show_feedback(feat_cond, attention_cond)
