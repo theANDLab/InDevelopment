@@ -28,22 +28,21 @@ kb = keyboard.Keyboard(clock = globalClock)
 
 # Experiment
 ATTENTION_CONDS = ['FIX', 'COV']
-BLOCK_DESIGN = [('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM'),('RVF','SEQ'),('LVF','SIM'),
-                ('RVF','SIM'),('LVF','SEQ'),('RVF','SIM'),('LVF','SEQ'),('RVF','SEQ'),('LVF','SIM')]
-NUM_RUNS = 6 # how many exp runs in one feature condition
+BLOCK_DESIGN = [('RVF','SIM'),('LVF','SEQ')]
+NUM_RUNS = 6 # how many runs in one feature condition
 RUNS_PER_COND = int(NUM_RUNS//len(ATTENTION_CONDS)) # equal number of FIX and COV runs per feature condition (runs 1,2,3 are FIX; 4,5,6 are COV)
-NUM_SIM_BLOCKS = 6 # per run
-NUM_SEQ_BLOCKS = 6 # per run
+NUM_SIM_BLOCKS = 1 # per run
+NUM_SEQ_BLOCKS = 1 # per run
 NUM_BLANK_BLOCKS = 2 # one before and one after each run
 NUM_TRIALS = 3 # per block
 
 # Timing
 BLANK_BLOCK_DURATION = 16 # seconds
 PERIPH_STIM_DURATION = 1 # seconds
-RSVP_RATE = 0.25 #sec; duration of RSVP pokemon presentation
+RSVP_RATE = 0.5 #sec; durations of RSVP pokemon presentation
 TRIAL_DURATION = PERIPH_STIM_DURATION*4 # sec
 PSTIM_TARGET_FREQ = [1,3] # pstim color targets will occur every 1-3 trials (4-12s)
-POKEMON_TARGET_FREQ = [15,30] # pokemon targets will occur every 15-30 pokemon (3.75-7.5s) in the RSVP
+POKEMON_TARGET_FREQ = [7,15] # pokemon targets will occur every 15-30 pokemon (3.75-7.5s) in the RSVP
 RESPONSE_WINDOW = 1.5 # sec; responses during this window this will be coded as hits
 
 # Stim parameters

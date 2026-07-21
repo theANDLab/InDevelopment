@@ -17,10 +17,14 @@ import json
 import sys
 import time
 import pylink
-from psychopy.tools.monitorunittools import pix2deg
+#import LiveTrack
+#import LiveTrackGS
+from psychopy.tools.monitorunittools import pix2deg, deg2pix
 logging.console.setLevel(logging.ERROR)
 
 ###### PARAMETERS ######################################################################################################################
+
+EYETRACKER_ON = False
 
 # Initialize the global clock and keyboard
 globalClock = core.Clock()
@@ -47,7 +51,6 @@ POKEMON_TARGET_FREQ = [15,30] # pokemon targets will occur every 15-30 pokemon (
 RESPONSE_WINDOW = 1.5 # sec; responses during this window this will be coded as hits
 
 # Stim parameters
-DISTANCE = 60 # cm, pt distance from screen
 PERIPHERAL_STIM_SIZE = 1.25 #DVA; size of each peripheral stimulus (circle)
 POKEMON_SIZE = [1.5, 1.5] # DVA, size of the pokemon during RSVP
 POKEMON_POS = (0,0) # location of rsvp pokemon
@@ -62,7 +65,12 @@ AMPLITUDE = 0.75 # half of the stim's total motion in DVA
 ANGLES = [0, 30, 60, 90, 120, 150] # all possible angles of motion
 TARGET_ANGLE = 90 # vertical motion
 TARGET_COLOR = 'red' # (0.8027, 0.4268, 0.6013)
-GAZE_BOUND = 3 # if gaze shifts more than this from fixation point, flag the trial
+GAZE_BOUND = 3 # DVA, if gaze shifts more than this from fixation point, flag the trial
+
+# EQUIPMENT
+SCREEN_RES = [1920, 1080] # pix
+SCREEN_SIZE = [518.4,293.0] # mm, width MUST be listed first
+DISTANCE = 60 # cm, pt distance from screen
 
 # Response key
 RESPONSE_KEY = '1'
@@ -114,6 +122,8 @@ feature_folder = os.path.join(participant_folder, f"{feat_cond}_cond_{target_pok
 os.makedirs(feature_folder, exist_ok=True)
 trials_filename = os.path.join(feature_folder, f"exp_trials_{exp_info['Participant ID']}_Session{exp_info['Session']}_{feat_cond}_{target_pokemon}")
 rsvp_filename = os.path.join(feature_folder, f"exp_rsvp_{exp_info['Participant ID']}_Session{exp_info['Session']}_{feat_cond}_{target_pokemon}")
+livetrack_filename = os.path.join(feature_folder, f"LiveTrack_{exp_info['Participant ID']}_Session{exp_info['Session']}_{feat_cond}_{target_pokemon}")
+calibration_filename = os.path.join(feature_folder, f"exp_rsvp_{exp_info['Participant ID']}_Session{exp_info['Session']}_{feat_cond}_{target_pokemon}_calibration.dat")
 
 # Create experiment handlers to manage the data files
 thisExp = data.ExperimentHandler(name=exp_name, version='', extraInfo=exp_info,
@@ -162,12 +172,12 @@ thisExp.status = STARTED
 rsvpExp.status = STARTED
 
 # Window setup (will need to be adjusted to match the display monitor)
-Eizo = monitors.Monitor('Eizo', width = 51.84, distance = DISTANCE) # screen width (cm) and distance from the screen (cm)
-Eizo.setSizePix([1920, 1200])
+BOLDScreen = monitors.Monitor('BOLDScreen', width = SCREEN_SIZE[0]/10, distance = DISTANCE) # screen width (cm) and distance from the screen (cm)
+BOLDScreen.setSizePix(SCREEN_RES)
 win = visual.Window(fullscr=True, color=[0.9032,0.8051,0.9655],
-            size=Eizo.getSizePix(), screen=1,
+            size=BOLDScreen.getSizePix(), screen=1,
             winType='pyglet', allowStencil=False,
-            monitor=Eizo, colorSpace=CLR_SPC,
+            monitor=BOLDScreen, colorSpace=CLR_SPC,
             backgroundImage='', backgroundFit='none',
             blendMode='avg', useFBO=False,
             units='deg', 
@@ -202,6 +212,253 @@ lvf_topright = [-gridcent_x + offset, gridcent_y + offset]  # Top right peripher
 lvf_botleft = [-gridcent_x - offset, gridcent_y - offset]  # Bottom left peripheral stimulus in LVF
 lvf_botright = [-gridcent_x + offset, gridcent_y - offset]  # Bottom right peripheral stimulus in LVF
 
+###### LIVETRACK CALIBRATION #######################################################################################################################
+
+if EYETRACKER_ON:
+
+    deviceType = LiveTrack.Init()
+    if deviceType == -100:
+        raise Exception('LiveTrack: Error - Livetrack not connnected')
+    else:
+        print(f"LiveTrack {deviceType} initialised.")
+
+    # Open the data file that eyetracking will be saved to
+    LiveTrack.SetDataFilename(livetrack_filename)
+
+    useVideo = False # set to True to show video while calibrating (to allow camera alignment)
+    viewDist = DISTANCE * 10 # viewing distance in mm
+
+   # Define fixation targets in PsychoPy coordinates (deg from center)
+    # PsychoPy: origin=center, x-positive=right, y-positive=up
+    targetsDeg = np.array([
+        [-10, -10], [0, -10], [10, -10],
+        [-10,   0], [0,   0], [10,   0],
+        [-10,  10], [0,  10], [10,  10]
+    ], dtype=float)
+
+    # Time before getting data from fixation (to ignore initial saccade)
+    setupDelay = 1000.0 # duration in mS
+
+    # Define the minimum amount of time required for each fixation (in mS) 
+    # decrease to make calibration "easier"/faster
+    minDur = 1200 # fixation duration in mS
+
+    # Time limit for aquiring fixation - if a fixation has not been aquired 
+    # within this time, the fixation point will be skipped.
+    fixTimeout = 5  # timeout duration in seconds
+
+    # Fixation threshold in camera pixels (all samples taken wihtin the "minDur"
+    # time must be within this threshold) - increase this to make the  
+    # calibration "easier" (e.g. for subjects with difficulties making precise
+    # eye fixations)
+    fixThreshold = 3.1
+
+    # Define the diameter of the fixation points (in degrees of visual angle)
+    fixDotInDeg = 0.3 # inner circle
+    fixDotOutDeg = 0.6 # outer circle
+
+    # Randomize the order of the targets
+    n_targets = targetsDeg.shape[0]
+    order = np.arange(n_targets)
+    np.random.shuffle(order)
+    targetsDeg2 = targetsDeg[order].copy()
+
+    # Convert degrees -> pixels for LiveTrack calibration target coordinates
+    # PsychoPy deg coordinates are centered, y-positive=up.
+    # If LiveTrack expects screen-like y-positive=down, flip Y before conversion.
+    targetsDegForTracker = targetsDeg2.copy()
+    targetsDegForTracker[:, 1] *= -1
+
+    tgtLocs = deg2pix(targetsDegForTracker, win.monitor)
+    tgtLocs = np.round(np.asarray(tgtLocs)).astype(float)
+
+    # Estimate pixels/degree for reporting calibration accuracy
+    pixPerDeg = float(deg2pix(1.0, win.monitor))
+
+    if useVideo:
+        print('Please align camera')
+        LiveTrackGS.VideoInit(0)
+        LiveTrackGS.VideoStart()
+        time.sleep(5)
+
+    # Raw results are needed for pupil/glint vector calibration
+    LiveTrack.SetResultsTypeRaw()
+
+    # If needed, explicitly set eyes here, e.g.:
+    # LiveTrack.SetTracking(True, True)
+    
+    # Clear buffer and start buffering data to the library
+    LiveTrack.ClearDataBuffer()
+    LiveTrack.StartTracking()
+    
+    # Get an estimate of the sample rate
+    width, height, sampleRate, offsetX, offsetY = LiveTrack.GetCaptureConfig()
+
+    # Calculate how many data samples the fixation duration (fixDur) contains
+    fixDurSamples = max(1, round((float(minDur) / 1000.0) * float(sampleRate)))
+
+    # Find out which eye to get fixation data from
+    trackLeftEye, trackRightEye = LiveTrack.GetTracking()
+    print(f"Tracking left eye: {trackLeftEye}\nTracking right eye: {trackRightEye}")
+    
+    VectXL = [None] * n_targets
+    VectYL = [None] * n_targets
+    GlintXL = [None] * n_targets
+    GlintYL = [None] * n_targets
+    VectXR = [None] * n_targets
+    VectYR = [None] * n_targets
+    GlintXR = [None] * n_targets
+    GlintYR = [None] * n_targets
+    
+    for i in range(n_targets):
+        # Draw fixation target in degrees, matching win.units='deg'
+        outer_dot = visual.Circle(
+            win,
+            units='deg',
+            radius=fixDotOutDeg / 2.0,
+            fillColor=[-1, -1, -1],
+            lineColor=[-1, -1, -1],
+            pos=targetsDeg2[i].tolist()
+        )
+        inner_dot = visual.Circle(
+            win,
+            units='deg',
+            radius=fixDotInDeg / 2.0,
+            fillColor=[1, 1, 1],
+            lineColor=[-1, -1, -1],
+            pos=targetsDeg2[i].tolist()
+        )
+
+        outer_dot.draw()
+        inner_dot.draw()
+        win.flip()
+
+        # This flag will be set to true when a valid fixation has been acquired
+        gotFixLeft = 0;  
+        gotFixRight = 0;
+        
+        t0 = time.time() # reset fixation timer 
+     
+        # Loop until fixation data has been aquired for this dot (or timed out) 
+        while True:
+            d = LiveTrack.GetBufferedEyePositions(0, fixDurSamples, 0)
+
+            if d is None or len(d) == 0:
+                if (time.time() - t0) > fixTimeout:
+                    if not gotFixLeft and trackLeftEye:
+                        print(f'Fixation #{i+1}: Did not get fixation for left eye (timeout)')
+                    if not gotFixRight and trackRightEye:
+                        print(f'Fixation #{i+1}: Did not get fixation for right eye (timeout)')
+                    break
+                continue
+
+            VectX = LiveTrack.GetFieldAsList(d, 'VectX')
+            VectY = LiveTrack.GetFieldAsList(d, 'VectY')
+            GlintX = LiveTrack.GetFieldAsList(d, 'GlintX')
+            GlintY = LiveTrack.GetFieldAsList(d, 'GlintY')
+            Tracked = LiveTrack.GetFieldAsList(d, 'Tracked')
+
+            VectXRight = LiveTrack.GetFieldAsList(d, 'VectXRight')
+            VectYRight = LiveTrack.GetFieldAsList(d, 'VectYRight')
+            GlintXRight = LiveTrack.GetFieldAsList(d, 'GlintXRight')
+            GlintYRight = LiveTrack.GetFieldAsList(d, 'GlintYRight')
+            TrackedRight = LiveTrack.GetFieldAsList(d, 'TrackedRight')
+
+            # Left eye validity check
+            left_ok = (
+                VectX is not None and VectY is not None and Tracked is not None and
+                len(VectX) > 0 and len(VectY) > 0 and len(Tracked) > 0
+            )
+
+            if left_ok:
+                pgDistL = max(max(VectX) - min(VectX), max(VectY) - min(VectY))
+                if (
+                    pgDistL <= fixThreshold and
+                    np.all(Tracked) and
+                    (time.time() - t0) > (setupDelay / 1000.0) and
+                    len(d) >= fixDurSamples and
+                    gotFixLeft == 0
+                ):
+                    VectXL[i] = float(np.median(VectX))
+                    VectYL[i] = float(np.median(VectY))
+                    GlintXL[i] = float(np.median(GlintX))
+                    GlintYL[i] = float(np.median(GlintY))
+                    print(f'Fixation #{i+1}: Found valid fixation for left eye')
+                    gotFixLeft = 1
+
+            # Right eye validity check
+            right_ok = (
+                VectXRight is not None and VectYRight is not None and TrackedRight is not None and
+                len(VectXRight) > 0 and len(VectYRight) > 0 and len(TrackedRight) > 0
+            )
+
+            if right_ok:
+                pgDistR = max(max(VectXRight) - min(VectXRight), max(VectYRight) - min(VectYRight))
+                if (
+                    pgDistR <= fixThreshold and
+                    np.all(TrackedRight) and
+                    (time.time() - t0) > (setupDelay / 1000.0) and
+                    len(d) >= fixDurSamples and
+                    gotFixRight == 0
+                ):
+                    VectXR[i] = float(np.median(VectXRight))
+                    VectYR[i] = float(np.median(VectYRight))
+                    GlintXR[i] = float(np.median(GlintXRight))
+                    GlintYR[i] = float(np.median(GlintYRight))
+                    print(f'Fixation #{i+1}: Found valid fixation for right eye')
+                    gotFixRight = 1
+
+            if (time.time() - t0) > fixTimeout:
+                if not gotFixLeft and trackLeftEye:
+                    print(f'Fixation #{i+1}: Did not get fixation for left eye (timeout)')
+                if not gotFixRight and trackRightEye:
+                    print(f'Fixation #{i+1}: Did not get fixation for right eye (timeout)')
+                break
+
+            if (gotFixLeft or not trackLeftEye) and (gotFixRight or not trackRightEye):
+                win.flip()
+                break
+
+    LiveTrack.StopTracking()
+    LiveTrack.ClearDataBuffer()
+        
+    # Remove failed left-eye fixations
+    failedFixL = [i for i, v in enumerate(VectXL) if v is None]
+    VectXL = np.delete(VectXL, failedFixL).tolist()
+    VectYL = np.delete(VectYL, failedFixL).tolist()
+    GlintXL = np.delete(GlintXL, failedFixL).tolist()
+    GlintYL = np.delete(GlintYL, failedFixL).tolist()
+    tgtLocsXL = np.delete(tgtLocs[:, 0], failedFixL).tolist()
+    tgtLocsYL = np.delete(tgtLocs[:, 1], failedFixL).tolist()
+
+    # Remove failed right-eye fixations
+    failedFixR = [i for i, v in enumerate(VectXR) if v is None]
+    VectXR = np.delete(VectXR, failedFixR).tolist()
+    VectYR = np.delete(VectYR, failedFixR).tolist()
+    GlintXR = np.delete(GlintXR, failedFixR).tolist()
+    GlintYR = np.delete(GlintYR, failedFixR).tolist()
+    tgtLocsXR = np.delete(tgtLocs[:, 0], failedFixR).tolist()
+    tgtLocsYR = np.delete(tgtLocs[:, 1], failedFixR).tolist()
+
+    # Calibrate device
+    if trackLeftEye and len(tgtLocsXL) > 0:
+        calErrL = LiveTrack.CalibrateDevice(
+            0, len(tgtLocsXL), tgtLocsXL, tgtLocsYL,
+            VectXL, VectYL, viewDist, np.median(GlintXL), np.median(GlintYL)
+        )
+        print('Left eye calibration accuracy:', str(math.sqrt(float(calErrL) / len(tgtLocsXL))), 'pixels')
+        print('Left eye calibration accuracy:', str(math.sqrt(float(calErrL) / len(tgtLocsXL)) / pixPerDeg), 'degrees of visual angle')
+
+    if trackRightEye and len(tgtLocsXR) > 0:
+        calErrR = LiveTrack.CalibrateDevice(
+            1, len(tgtLocsXR), tgtLocsXR, tgtLocsYR,
+            VectXR, VectYR, viewDist, np.median(GlintXR), np.median(GlintYR)
+        )
+        print('Right eye calibration accuracy:', str(math.sqrt(float(calErrR) / len(tgtLocsXR))), 'pixels')
+        print('Right eye calibration accuracy:', str(math.sqrt(float(calErrR) / len(tgtLocsXR)) / pixPerDeg), 'degrees of visual angle')
+
+    LiveTrack.SaveCalibration(calibration_filename)
+    LiveTrack.StopTracking()
 
 ###### FUNCTIONS #######################################################################################################################
 
@@ -209,6 +466,16 @@ def terminate_task():
     """ 
     Helper function to save data and close the window.
     """
+    
+    if EYETRACKER_ON:
+        # Stop eyetracking
+        LiveTrack.StopTracking() # Stop buffering data to the library
+        LiveTrack.ClearDataBuffer() # Clear the data in the buffer
+        LiveTrack.CloseDataFile()
+        LiveTrack.Close() # close LiveTrack
+        if useVideo:
+            LiveTrackGS.VideoStop()
+        print("Tracker closed.")
     
     # Mark end of experiment
     print("Ending experiment.")
@@ -636,6 +903,8 @@ def end_run_screen(feat_cond, attention_cond):
     thisExp.nextEntry()
     thisExp.addData('end_run_screen.start', globalClock.getTime(format='float'))
     rsvpExp.addData('end_run_screen.start', globalClock.getTime(format='float'))
+    if EYETRACKER_ON:
+        LiveTrack.SetDataComment("end_run_screen_start")
     
     end_text = visual.TextStim(win=win, text=(), font='Arial', units='deg', pos=(0, 0), height=1.2, wrapWidth=1700, 
         color='black', colorSpace=CLR_SPC)
@@ -692,13 +961,15 @@ def end_run_screen(feat_cond, attention_cond):
             target_pstim.draw()
             win.flip()
             
-            keys = event.waitKeys(keyList=['space', 'escape'])
+            keys = event.getKeys(keyList=['space', 'escape'])
             
             if 'escape' in keys:
                 terminate_task()
                 
     thisExp.addData('end_run_screen.end', globalClock.getTime(format='float'))
     rsvpExp.addData('end_run_screen.end', globalClock.getTime(format='float'))
+    if EYETRACKER_ON:
+        LiveTrack.SetDataComment("end_run_screen_end")
     
 def ready_screen():
     """ Text screen before the start of the experiment trials."""
@@ -1102,13 +1373,10 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
 
     trials_per_run = (NUM_SIM_BLOCKS + NUM_SEQ_BLOCKS) * NUM_TRIALS
     total_run_frames = round((trials_per_run * frames_per_trial) + (NUM_BLANK_BLOCKS * frames_per_blank))
-    print('total run frames:', total_run_frames)
-    print('end of final blank:', trial_schedule[-1]['end_frame'] + frames_per_blank)
 
     # --- Trial-level state ----------------------------------------------------------------------------------------
     last_target_onset = None
     target_onset_recorded = False
-    trial_offset_recorded = False
     current_trial_idx = 0
     current_trial = trial_schedule[current_trial_idx]
     current_trial_dict = current_trial['trial_dict']
@@ -1120,8 +1388,6 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
     is_sim_trial = False
     target_shown = False
     rts = []
-    press_times = []
-    keypresses = 0
 
     pstim_idx = 0
     pstim_to_draw = []
@@ -1159,8 +1425,12 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
         # Record trial offset/onset
         if record_trial_offset:
             thisExp.addData('trial.end', flip_time)
+            if EYETRACKER_ON:
+                LiveTrack.SetDataComment(f"trial{current_trial_dict['trial_num']}_end")
             thisExp.nextEntry()
         if record_trial_onset:
+            if EYETRACKER_ON:
+                LiveTrack.SetDataComment(f"trial{current_trial_dict['trial_num']}_start")
             pstim_clock.reset() 
             thisExp.addData('trial.start', flip_time)
             thisExp.addData('feat_cond', feat_cond)
@@ -1171,7 +1441,6 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
             thisExp.addData('presentation_cond', current_trial_dict['presentation_cond'])
             thisExp.addData('vf', vf[0])
             thisExp.addData('rsvp_seq', current_trial_dict['rsvp_seq'])
-            thisExp.addData('pstim.onset', pstim_onset_to_log)
             thisExp.addData('pstim_colors', pstim_colors)
             thisExp.addData('pstim_angles', pstim_angles)
             thisExp.addData('pstim_phases', phases)
@@ -1197,6 +1466,8 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
             rsvpExp.addData('attention_cond', attention_cond)
             rsvpExp.addData('stim', current_pokemon.name)
             rsvpExp.addData('stim.onset', flip_time)
+            if EYETRACKER_ON:
+                LiveTrack.SetDataComment(f"{current_pokemon.name}_onset")
             rsvp_idx += 1
 
         # Record pstim onsets/offsets for SIM trials
@@ -1206,11 +1477,15 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
                 for pstim in pstim_to_draw:
                     if not pstim_onset_recorded_dict[pstim.name]:
                         thisExp.addData(f'{pstim.name}.onset', flip_time)
+                        if EYETRACKER_ON:
+                            LiveTrack.SetDataComment("simultaneous_pstim_onset")
                         pstim_onset_recorded_dict[pstim.name] = True
             elif record_pstim_offset:
                 for pstim in pstim_to_draw:
                     if not pstim_offset_recorded_dict[pstim.name]:
                         thisExp.addData(f'{pstim.name}.offset', flip_time)
+                        if EYETRACKER_ON:
+                            LiveTrack.SetDataComment("simultaneous_pstim_offset")
                         pstim_offset_recorded_dict[pstim.name] = True
 
         # Record pstim onsets/offsets for SEQ trials
@@ -1220,13 +1495,19 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
                 if record_pstim_offset and not pstim_offset_recorded_dict[prev_pstim.name]:
                     thisExp.addData(f'{prev_pstim.name}.offset', flip_time)
                     pstim_offset_recorded_dict[prev_pstim.name] = True
+                    if EYETRACKER_ON:
+                        LiveTrack.SetDataComment("seq_{current_pstim.name}_pstim_offset")
             if record_pstim_onset and current_pstim is not None and not pstim_onset_recorded_dict[current_pstim.name]:
                 thisExp.addData(f'{current_pstim.name}.onset', flip_time)
+                if EYETRACKER_ON:
+                    LiveTrack.SetDataComment("seq_{current_pstim.name}_pstim_onset")
                 pstim_onset_recorded_dict[current_pstim.name] = True
 
         # Record target onset
         if update_target_onset:
             last_target_onset = flip_time
+            if EYETRACKER_ON:
+                LiveTrack.SetDataComment("target_onset")
             if attention_cond == 'FIX':
                 rsvpExp.addData('target.onset', last_target_onset)
             elif attention_cond == 'COV' and not target_onset_recorded:
@@ -1255,10 +1536,8 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
             current_pokemon.draw()
 
         # --- Trial advancement (end_frame is exclusive) ------------------------------------------------------------
-        if frame >= current_trial['end_frame']:
-            if not trial_offset_recorded:
-                record_trial_offset = True
-                trial_offset_recorded = True
+        if frame >= current_trial['end_frame'] and rsvp_idx >= len(rsvp)-pokemon_per_blank:
+            record_trial_offset = True
             if current_trial_idx + 1 < len(trial_schedule):
                 current_trial_idx  += 1
                 current_trial = trial_schedule[current_trial_idx]
@@ -1267,12 +1546,9 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
         # --- Trial initialization (runs only on the trial's first frame) --------------------------------------------
         if frame == current_trial['start_frame']:
             record_trial_onset = True
+            rts = []
             pstim_idx = 0
             target_onset_recorded = False
-            trial_offset_recorded = False
-            rts = []
-            press_times = []
-            keypresses = 0
 
             is_seq_trial = current_trial_dict['presentation_cond'] == 'SEQ'
             is_sim_trial = current_trial_dict['presentation_cond'] == 'SIM'
@@ -1305,11 +1581,14 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
 
             if is_sim_trial:
                 pstim_start_frame = current_trial['start_frame'] + current_trial_dict['grid_onset'] * frame_rate
-                pstim_onset_to_log = current_trial_dict['grid_onset']
+                thisExp.addData('trial_start_frame', current_trial['start_frame'])
+                thisExp.addData('pstim_start_frame', pstim_start_frame)
+                thisExp.addData('sec_delay', int(pstim_start_frame-current_trial['start_frame'])/frame_rate)
+                thisExp.addData('pstim.onset', current_trial_dict['grid_onset'])
             elif is_seq_trial:
                 pstim_onsets = np.arange(0, TRIAL_DURATION, PERIPH_STIM_DURATION).tolist()
                 pstim_onsets_frames = [(onset * frame_rate) + current_trial['start_frame'] for onset in pstim_onsets]
-                pstim_onset_to_log = pstim_onsets[0]
+                thisExp.addData('pstim.onset', pstim_onsets[0])
 
             # Check whether target pstim is present this trial
             target_shown = False
@@ -1340,8 +1619,7 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
                     pstim.draw()
                     record_pstim_onset = True
                     if attention_cond == "COV" and pstim.name == target_pstim_name:
-                        if not target_onset_recorded:
-                            update_target_onset = True
+                        update_target_onset = True
                 elif frame >= stim_end:
                     record_pstim_offset = True  # assumes all pstims share one stim_end
 
@@ -1357,8 +1635,7 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
                 record_pstim_onset = True
                 if attention_cond == "COV" and current_pstim.name == target_pstim_name:
                     if (vf[0] == 'L' and pstim_idx == 3) or (vf[0] == 'R' and pstim_idx == 2):
-                        if not target_onset_recorded:
-                            update_target_onset = True
+                        update_target_onset = True
             elif frame >= stim_end:
                 pstim_idx += 1
                 record_pstim_offset = True
@@ -1372,22 +1649,18 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
             if key.name == 'escape':
                 terminate_task()
             elif key.name == RESPONSE_KEY:
-                keypresses += 1
-                press_times.append(key.rt)
+                if EYETRACKER_ON:
+                    LiveTrack.SetDataComment("response_key_pressed")
                 if last_target_onset is not None:
                     rt = key.rt - last_target_onset
                     rts.append(rt)
-                    print('Key pressed. RT:', rt, rts)
+                    print('Key pressed. RT:', rt)
                     if attention_cond == "FIX":
-                        rsvpExp.addData('press_time', key.rt)
                         rsvpExp.addData('rt', rt)
                         if 0 < rt <= RESPONSE_WINDOW:
                             rsvpExp.addData('hit', 1)
                     elif attention_cond == "COV":
                         thisExp.addData('rt', rt)
-                        thisExp.addData('rts', rts)
-                        thisExp.addData('press_times', press_times)
-                        thisExp.addData('keypresses', keypresses)
                         if 0 < rt <= RESPONSE_WINDOW:
                             thisExp.addData('hit', 1)
 
@@ -1435,6 +1708,13 @@ win.flip()
 
 ###### EXPERIMENT #####################################################################################################################
 
+# Start tracking
+if EYETRACKER_ON:
+    LiveTrack.SetResultsTypeCalibrated()
+    LiveTrack.ClearDataBuffer()
+    LiveTrack.StartTracking()
+    LiveTrack.SetDataComment("experiment_start")
+
 # Generate or load the RSVPs, SIM onsets, and and peripheral stimulus grids for all runs
 exp_rsvps = generate_rsvps()
 exp_sim_onsets = generate_sim_onsets()
@@ -1446,6 +1726,8 @@ if any(r in run_list for r in [1, 2, 3]):
     show_instructions(feat_cond, attention_cond)
     ready_screen()
     for run in run_list:
+        if EYETRACKER_ON:
+            LiveTrack.SetDataComment(f"{feat_cond}_{attention_cond}_start")
         if run <= RUNS_PER_COND:
             experiment_run(feat_cond, attention_cond, run, exp_rsvps[run], exp_sim_onsets[run], exp_trial_grids[run])
 
@@ -1455,6 +1737,8 @@ if any(r in run_list for r in [4, 5, 6]):
     show_instructions(feat_cond, attention_cond)
     ready_screen()
     for run in run_list:
+        if EYETRACKER_ON:
+            LiveTrack.SetDataComment(f"{feat_cond}_{attention_cond}_start")
         if run >= RUNS_PER_COND:
             experiment_run(feat_cond, attention_cond, run, exp_rsvps[run], exp_sim_onsets[run], exp_trial_grids[run])
 
