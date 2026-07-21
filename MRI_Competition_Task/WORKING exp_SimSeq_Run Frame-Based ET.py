@@ -466,7 +466,6 @@ def terminate_task():
     """ 
     Helper function to save data and close the window.
     """
-    
     if EYETRACKER_ON:
         # Stop eyetracking
         LiveTrack.StopTracking() # Stop buffering data to the library
@@ -476,7 +475,7 @@ def terminate_task():
         if useVideo:
             LiveTrackGS.VideoStop()
         print("Tracker closed.")
-    
+        
     # Mark end of experiment
     print("Ending experiment.")
     thisExp.nextEntry()
@@ -901,10 +900,10 @@ def end_run_screen(feat_cond, attention_cond):
     """
     
     thisExp.nextEntry()
-    thisExp.addData('end_run_screen.start', globalClock.getTime(format='float'))
-    rsvpExp.addData('end_run_screen.start', globalClock.getTime(format='float'))
     if EYETRACKER_ON:
         LiveTrack.SetDataComment("end_run_screen_start")
+    thisExp.addData('end_run_screen.start', globalClock.getTime(format='float'))
+    rsvpExp.addData('end_run_screen.start', globalClock.getTime(format='float'))
     
     end_text = visual.TextStim(win=win, text=(), font='Arial', units='deg', pos=(0, 0), height=1.2, wrapWidth=1700, 
         color='black', colorSpace=CLR_SPC)
@@ -961,7 +960,7 @@ def end_run_screen(feat_cond, attention_cond):
             target_pstim.draw()
             win.flip()
             
-            keys = event.getKeys(keyList=['space', 'escape'])
+            keys = event.waitKeys(keyList=['space', 'escape'])
             
             if 'escape' in keys:
                 terminate_task()
@@ -1373,10 +1372,13 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
 
     trials_per_run = (NUM_SIM_BLOCKS + NUM_SEQ_BLOCKS) * NUM_TRIALS
     total_run_frames = round((trials_per_run * frames_per_trial) + (NUM_BLANK_BLOCKS * frames_per_blank))
+    print('total run frames:', total_run_frames)
+    print('end of final blank:', trial_schedule[-1]['end_frame'] + frames_per_blank)
 
     # --- Trial-level state ----------------------------------------------------------------------------------------
     last_target_onset = None
     target_onset_recorded = False
+    trial_offset_recorded = False
     current_trial_idx = 0
     current_trial = trial_schedule[current_trial_idx]
     current_trial_dict = current_trial['trial_dict']
@@ -1388,6 +1390,8 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
     is_sim_trial = False
     target_shown = False
     rts = []
+    press_times = []
+    keypresses = 0
 
     pstim_idx = 0
     pstim_to_draw = []
@@ -1441,6 +1445,7 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
             thisExp.addData('presentation_cond', current_trial_dict['presentation_cond'])
             thisExp.addData('vf', vf[0])
             thisExp.addData('rsvp_seq', current_trial_dict['rsvp_seq'])
+            thisExp.addData('pstim.onset', pstim_onset_to_log)
             thisExp.addData('pstim_colors', pstim_colors)
             thisExp.addData('pstim_angles', pstim_angles)
             thisExp.addData('pstim_phases', phases)
@@ -1497,6 +1502,7 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
                     pstim_offset_recorded_dict[prev_pstim.name] = True
                     if EYETRACKER_ON:
                         LiveTrack.SetDataComment("seq_{current_pstim.name}_pstim_offset")
+                    pstim_offset_recorded_dict[prev_pstim.name] = True
             if record_pstim_onset and current_pstim is not None and not pstim_onset_recorded_dict[current_pstim.name]:
                 thisExp.addData(f'{current_pstim.name}.onset', flip_time)
                 if EYETRACKER_ON:
@@ -1536,8 +1542,10 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
             current_pokemon.draw()
 
         # --- Trial advancement (end_frame is exclusive) ------------------------------------------------------------
-        if frame >= current_trial['end_frame'] and rsvp_idx >= len(rsvp)-pokemon_per_blank:
-            record_trial_offset = True
+        if frame >= current_trial['end_frame']:
+            if not trial_offset_recorded:
+                record_trial_offset = True
+                trial_offset_recorded = True
             if current_trial_idx + 1 < len(trial_schedule):
                 current_trial_idx  += 1
                 current_trial = trial_schedule[current_trial_idx]
@@ -1546,9 +1554,12 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
         # --- Trial initialization (runs only on the trial's first frame) --------------------------------------------
         if frame == current_trial['start_frame']:
             record_trial_onset = True
-            rts = []
             pstim_idx = 0
             target_onset_recorded = False
+            trial_offset_recorded = False
+            rts = []
+            press_times = []
+            keypresses = 0
 
             is_seq_trial = current_trial_dict['presentation_cond'] == 'SEQ'
             is_sim_trial = current_trial_dict['presentation_cond'] == 'SIM'
@@ -1581,14 +1592,11 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
 
             if is_sim_trial:
                 pstim_start_frame = current_trial['start_frame'] + current_trial_dict['grid_onset'] * frame_rate
-                thisExp.addData('trial_start_frame', current_trial['start_frame'])
-                thisExp.addData('pstim_start_frame', pstim_start_frame)
-                thisExp.addData('sec_delay', int(pstim_start_frame-current_trial['start_frame'])/frame_rate)
-                thisExp.addData('pstim.onset', current_trial_dict['grid_onset'])
+                pstim_onset_to_log = current_trial_dict['grid_onset']
             elif is_seq_trial:
                 pstim_onsets = np.arange(0, TRIAL_DURATION, PERIPH_STIM_DURATION).tolist()
                 pstim_onsets_frames = [(onset * frame_rate) + current_trial['start_frame'] for onset in pstim_onsets]
-                thisExp.addData('pstim.onset', pstim_onsets[0])
+                pstim_onset_to_log = pstim_onsets[0]
 
             # Check whether target pstim is present this trial
             target_shown = False
@@ -1619,7 +1627,8 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
                     pstim.draw()
                     record_pstim_onset = True
                     if attention_cond == "COV" and pstim.name == target_pstim_name:
-                        update_target_onset = True
+                        if not target_onset_recorded:
+                            update_target_onset = True
                 elif frame >= stim_end:
                     record_pstim_offset = True  # assumes all pstims share one stim_end
 
@@ -1635,7 +1644,8 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
                 record_pstim_onset = True
                 if attention_cond == "COV" and current_pstim.name == target_pstim_name:
                     if (vf[0] == 'L' and pstim_idx == 3) or (vf[0] == 'R' and pstim_idx == 2):
-                        update_target_onset = True
+                        if not target_onset_recorded:
+                            update_target_onset = True
             elif frame >= stim_end:
                 pstim_idx += 1
                 record_pstim_offset = True
@@ -1651,16 +1661,22 @@ def experiment_run(feat_cond, attention_cond, run, rsvp, sim_onsets, trial_grids
             elif key.name == RESPONSE_KEY:
                 if EYETRACKER_ON:
                     LiveTrack.SetDataComment("response_key_pressed")
+                keypresses += 1
+                press_times.append(key.rt)
                 if last_target_onset is not None:
                     rt = key.rt - last_target_onset
                     rts.append(rt)
-                    print('Key pressed. RT:', rt)
+                    print('Key pressed. RT:', rt, rts)
                     if attention_cond == "FIX":
+                        rsvpExp.addData('press_time', key.rt)
                         rsvpExp.addData('rt', rt)
                         if 0 < rt <= RESPONSE_WINDOW:
                             rsvpExp.addData('hit', 1)
                     elif attention_cond == "COV":
                         thisExp.addData('rt', rt)
+                        thisExp.addData('rts', rts)
+                        thisExp.addData('press_times', press_times)
+                        thisExp.addData('keypresses', keypresses)
                         if 0 < rt <= RESPONSE_WINDOW:
                             thisExp.addData('hit', 1)
 
